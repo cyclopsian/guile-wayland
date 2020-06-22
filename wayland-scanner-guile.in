@@ -1,0 +1,10 @@
+#!@guile@ \
+--no-auto-compile -s
+-*- coding: utf-8; mode: scheme -*-
+SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
+SPDX-License-Identifier: LGPL-3.0-or-later
+!#
+
+(add-to-load-path "@moddir@")
+(set! %load-compiled-path (cons "@godir@" %load-compiled-path))
+(apply (@ (wayland scanner) wl-scanner-main) (command-line))
