@@ -1,5 +1,5 @@
 /* SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
- * SPDX-License-Identifier: LGPL-3.0-or-later */
+ * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include <libguile.h>
 #include <wayland-cursor.h>

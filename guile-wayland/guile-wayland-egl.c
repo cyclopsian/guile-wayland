@@ -1,5 +1,5 @@
 /* SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
- * SPDX-License-Identifier: LGPL-3.0-or-later */
+ * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include <libguile.h>
 #include <wayland-egl.h>
@@ -12,10 +12,7 @@ SCM scm_wl_egl_window_type;
 #define FUNC_NAME s_scm_wl_egl_window_create
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_create, "wl-egl-window-create", 3, 0, 0,
     (SCM surface, SCM width, SCM height),
-    "Creates an EGL window for @var{surface} with surface-local size\n"
-    "(@var{width}, @var{height}), suitable for passing to\n"
-    "@code{eglCreateWindowSurface}. The surface should not have any other\n"
-    "buffers attached.") {
+    "") {
   SCM client_proto = scm_c_resolve_module("wayland client protocol");
   SCM sinterface = scm_c_module_lookup(client_proto, "wl-surface-interface");
   struct wl_interface *surface_interface
@@ -48,8 +45,7 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_create, "wl-egl-window-create", 3, 0, 0,
 #define FUNC_NAME s_scm_wl_egl_window_destroy
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_destroy, "wl-egl-window-destroy", 1, 0, 0,
     (SCM egl_window),
-    "Destroys resources associated with @var{egl_window}. The object will\n"
-    "be invalidated.") {
+    "") {
   struct wl_egl_window *i_egl_window;
   SCM_VALIDATE_WL_EGL_WINDOW_COPY(SCM_ARG1, egl_window, i_egl_window);
   wl_egl_window_destroy(i_egl_window);
@@ -61,9 +57,7 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_destroy, "wl-egl-window-destroy", 1, 0, 0,
 #define FUNC_NAME s_scm_wl_egl_window_resize
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_resize, "wl-egl-window-resize", 5, 0, 0,
     (SCM egl_window, SCM width, SCM height, SCM dx, SCM dy),
-    "Resizes @var{egl_window} to surface-local size\n"
-    "(@var{width}, @var{height}), and sets the surface-local top-left offset\n"
-    "to (@var{dx}, @var{dy}).") {
+    "") {
   struct wl_egl_window *i_egl_window;
   SCM_VALIDATE_WL_EGL_WINDOW_COPY(SCM_ARG1, egl_window, i_egl_window);
   int i_width, i_height, i_dx, i_dy;
@@ -80,8 +74,7 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_resize, "wl-egl-window-resize", 5, 0, 0,
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_get_attached_size,
     "wl-egl-window-get-attached-size", 1, 0, 0,
     (SCM egl_window),
-    "Returns a pair of integers representing the surface-local width and\n"
-    "height of @var{egl_window}.") {
+    "") {
   struct wl_egl_window *i_egl_window;
   SCM_VALIDATE_WL_EGL_WINDOW_COPY(SCM_ARG1, egl_window, i_egl_window);
   int width, height;

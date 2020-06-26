@@ -1,5 +1,5 @@
 /* SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
- * SPDX-License-Identifier: LGPL-3.0-or-later */
+ * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #define _GNU_SOURCE
 #include <errno.h>
@@ -120,7 +120,7 @@ SCM_DEFINE_PUBLIC(scm_make_wl_interface, "make-wl-interface", 2, 0, 0,
 #define FUNC_NAME s_scm_wl_interface_name
 SCM_DEFINE_PUBLIC(scm_wl_interface_name, "wl-interface-name", 1, 0, 0,
     (SCM interface),
-    "Returns the name of @var{interface}.") {
+    "") {
   struct wl_interface *i_interface;
   SCM_VALIDATE_WL_INTERFACE_COPY(SCM_ARG1, interface, i_interface);
   return scm_from_utf8_string(i_interface->name);
@@ -571,24 +571,7 @@ static inline struct wl_interface *get_wl_display_interface(void) {
 #define FUNC_NAME s_scm_wl_display_connect
 SCM_DEFINE_PUBLIC(scm_wl_display_connect, "wl-display-connect", 0, 1, 0,
     (SCM name),
-    "Connect to a Wayland display\n"
-    "\n"
-    "@var{name} Name of the Wayland display to connect to\n"
-    "Returns a wl_display object\n"
-    "\n"
-    "Connect to the Wayland display named @var{name}. If @var{name} is omitted,\n"
-    "its value will be replaced with the WAYLAND_DISPLAY environment\n"
-    "variable if it is set, otherwise display \"wayland-0\" will be used.\n"
-    "\n"
-    "If @var{name} is an absolute path, then that path is used as-is for\n"
-    "the location of the socket at which the Wayland server is listening;\n"
-    "no qualification inside XDG_RUNTIME_DIR is attempted.\n"
-    "\n"
-    "If @var{name} is omitted and the WAYLAND_DISPLAY environment variable\n"
-    "is set to an absolute pathname, then that pathname is used as-is\n"
-    "for the socket in the same manner as if @var{name} held an absolute\n"
-    "path. Support for absolute paths in @var{name} and WAYLAND_DISPLAY\n"
-    "is present since Wayland version 1.15.") {
+    "") {
   scm_dynwind_begin(0);
   char *i_name = NULL;
   if (!SCM_UNBNDP(name)) {
@@ -642,13 +625,7 @@ SCM_DEFINE_PUBLIC(scm_wl_display_disconnect, "wl-display-disconnect", 1, 0, 0,
 #define FUNC_NAME s_scm_wl_display_get_fd
 SCM_DEFINE_PUBLIC(scm_wl_display_get_fd, "wl-display-get-fd", 1, 0, 0,
     (SCM display),
-    "Get a display context's file descriptor\n"
-    "\n"
-    "@var{display} The display context object\n"
-    "Returns the display object file descriptor\n"
-    "\n"
-    "Return the file descriptor associated with a display so it can be\n"
-    "integrated into the client's main loop.\n") {
+    "") {
   struct wl_display *i_display;
   VALIDATE_WL_DISPLAY_COPY(SCM_ARG1, display, i_display);
   return scm_from_int(wl_display_get_fd(i_display));
@@ -893,7 +870,7 @@ SCM_DEFINE_PUBLIC(scm_wl_set_log_port_client, "wl-set-log-port-client", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static void register_wayland_client(void *data) {
+static void register_wayland_client_core(void *data) {
   scm_wl_event_queue_type = scm_make_foreign_object_type(
       scm_from_utf8_symbol("wl_event_queue"),
       scm_list_1(scm_from_utf8_symbol("queue")),
@@ -915,5 +892,5 @@ static void register_wayland_client(void *data) {
 }
 
 void scm_init_wayland_client(void) {
-  scm_c_define_module("wayland client", register_wayland_client, NULL);
+  scm_c_define_module("wayland client core", register_wayland_client_core, NULL);
 }

@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
-# SPDX-License-Identifier: CC0-1.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 fs = import('fs')
+pkg = import('pkgconfig')
 
 python3        = find_program('python3', native: true)
 guile_snarf    = find_program('guile-snarf-3.0', native: true)
@@ -66,6 +67,7 @@ guile_wayland_client = library(
   install: true,
   install_dir: extdir
 )
+pkg.generate(guile_wayland_client)
 
 install_headers(
   guile_wayland_headers,

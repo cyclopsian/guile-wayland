@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
-# SPDX-License-Identifier: CC0-1.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 project(
   'guile-wayland',
   'c',
   version: '1.0',
-  license: 'LGPL-3.0-or-later',
+  license: 'GPL-3.0-or-later',
   meson_version: '>=0.54',
   default_options: [
     'c_std=gnu11',

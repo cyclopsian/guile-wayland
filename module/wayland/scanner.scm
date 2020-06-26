@@ -1,6 +1,6 @@
 ;;;; -*- coding: utf-8; mode: scheme -*-
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
-;;;; SPDX-License-Identifier: LGPL-3.0-or-later
+;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
 (define-module (wayland scanner)
   #:use-module (ice-9 getopt-long)
@@ -105,7 +105,7 @@
     (if version (string->number version) #f))
 
   (sxml-match
-    (caddr (xml->sxml))
+    (caddr (xml->sxml #:trim-whitespace? #t))
     ((protocol (@ (name ,proto-name)) . ,proto-children)
      (define protocol (make <wl-protocol> #:name proto-name))
      (get-description protocol proto-children)
@@ -456,9 +456,6 @@ Supported options:
            inport
            (cut with-output-to-port outport
                 (cut wl-scanner (string->symbol type))))))
-      (else
+      (_
         (format #t "~a ~a" usage-text (car args))
         (quit 1)))))
-
-(main (command-line))
-(quit 0)
