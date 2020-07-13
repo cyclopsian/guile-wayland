@@ -213,21 +213,29 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_frame_and_duration,
 #undef FUNC_NAME
 
 static void register_wayland_cursor(void *data) {
+  static const char s_scm_wl_cursor_theme[] = "<wl-cursor-theme>";
   scm_wl_cursor_theme_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-cursor-theme>"),
+      scm_from_utf8_symbol(s_scm_wl_cursor_theme),
       scm_list_1(scm_from_utf8_symbol("cursor-theme")),
       NULL);
-  scm_c_export("<wl-cursor-theme>", scm_wl_cursor_theme_type, NULL);
+  scm_c_define(s_scm_wl_cursor_theme, scm_wl_cursor_theme_type);
+  scm_c_export(s_scm_wl_cursor_theme, NULL);
+
+  static const char s_scm_wl_cursor[] = "<wl-cursor>";
   scm_wl_cursor_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-cursor>"),
+      scm_from_utf8_symbol(s_scm_wl_cursor),
       scm_list_1(scm_from_utf8_symbol("cursor")),
       NULL);
-  scm_c_export("<wl-cursor>", scm_wl_cursor_type, NULL);
+  scm_c_define(s_scm_wl_cursor, scm_wl_cursor_type);
+  scm_c_export(s_scm_wl_cursor, NULL);
+
+  static const char s_scm_wl_cursor_image[] = "<wl-cursor-image>";
   scm_wl_cursor_image_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-cursor-image>"),
+      scm_from_utf8_symbol(s_scm_wl_cursor_image),
       scm_list_1(scm_from_utf8_symbol("cursor-image")),
       NULL);
-  scm_c_export("<wl-cursor-image>", scm_wl_cursor_image_type, NULL);
+  scm_c_define(s_scm_wl_cursor_image, scm_wl_cursor_image_type);
+  scm_c_export(s_scm_wl_cursor_image, NULL);
 
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-cursor.x"

@@ -52,7 +52,7 @@ static void unpack_message(SCM message, struct wl_message *out,
     if (*signature == '?')
       continue;
     SCM type = SCM_CAR(types);
-    if (*signature == 'o' || (*signature == 'n' && !scm_is_false(type))) {
+    if ((*signature == 'o' || *signature == 'n') && !scm_is_false(type)) {
       scm_assert_foreign_object_type(scm_wl_interface_type, type);
       out->types[i] = scm_foreign_object_ref(type, 0);
     } else {
@@ -69,7 +69,7 @@ static void unpack_message(SCM message, struct wl_message *out,
     SCM_ASSERT_TYPE(SCM_IS_A_P(q, scm_wl_event_queue_type), \
         q, pos, FUNC_NAME, "wl-event-queue"); \
     queue = scm_foreign_object_ref(q, 0); \
-    SCM_ASSERT_TYPE(queue, q, pos, FUNC_NAME, "non-null wl_event_queue"); \
+    SCM_ASSERT_TYPE(queue, q, pos, FUNC_NAME, "non-null wl-event-queue"); \
   } while (0)
 
 #define SCM_VALIDATE_WL_INTERFACE_COPY(pos, i, interface) \
@@ -77,43 +77,57 @@ static void unpack_message(SCM message, struct wl_message *out,
     SCM_ASSERT_TYPE(SCM_IS_A_P(i, scm_wl_interface_type), \
         i, pos, FUNC_NAME, "wl-interface"); \
     interface = scm_foreign_object_ref(i, 0); \
-    SCM_ASSERT_TYPE(interface, i, pos, FUNC_NAME, "non-null wl_interface"); \
+    SCM_ASSERT_TYPE(interface, i, pos, FUNC_NAME, "non-null wl-interface"); \
   } while (0)
 
 #define FUNC_NAME s_scm_make_wl_interface
-SCM_DEFINE_PUBLIC(scm_make_wl_interface, "make-wl-interface", 2, 0, 0,
-    (SCM name, SCM version, SCM methods, SCM events),
+SCM_DEFINE_PUBLIC(scm_make_wl_interface, "make-wl-interface", 0, 0, 0,
+    (void),
+    "") {
+  struct wl_interface *interface = scm_calloc(sizeof(struct wl_interface));
+  return scm_make_foreign_object_1(scm_wl_interface_type, interface);
+}
+#undef FUNC_NAME
+
+#define FUNC_NAME s_scm_wl_interface_set
+SCM_DEFINE_PUBLIC(scm_wl_interface_set, "wl-interface-set", 5, 0, 0,
+    (SCM interface, SCM name, SCM version, SCM methods, SCM events),
     "") {
 
-  struct wl_interface *interface = scm_calloc(sizeof(struct wl_interface));
-  SCM_VALIDATE_STRING(SCM_ARG1, name);
-  SCM_VALIDATE_INT_COPY(SCM_ARG2, version, interface->version);
+  struct wl_interface *i_interface;
+  SCM_VALIDATE_WL_INTERFACE_COPY(SCM_ARG1, interface, i_interface);
+  if (i_interface->name != NULL)
+    scm_misc_error(FUNC_NAME, "interface already set: ~a",
+        scm_list_1(interface));
+
+  SCM_VALIDATE_STRING(SCM_ARG2, name);
+  SCM_VALIDATE_INT_COPY(SCM_ARG3, version, i_interface->version);
   if (!scm_is_false(methods))
-    SCM_VALIDATE_LIST_COPYLEN(SCM_ARG3, methods, interface->method_count);
+    SCM_VALIDATE_LIST_COPYLEN(SCM_ARG4, methods, i_interface->method_count);
   if (!scm_is_false(events))
-    SCM_VALIDATE_LIST_COPYLEN(SCM_ARG4, events, interface->event_count);
+    SCM_VALIDATE_LIST_COPYLEN(SCM_ARG5, events, i_interface->event_count);
 
   struct wl_message *i_methods = NULL;
-  if (interface->method_count > 0)
-    i_methods = scm_calloc(interface->method_count * sizeof(struct wl_message));
-  for (int i = 0; i < interface->method_count; i++) {
+  if (i_interface->method_count > 0)
+    i_methods = scm_calloc(i_interface->method_count * sizeof(struct wl_message));
+  for (int i = 0; i < i_interface->method_count; i++) {
     unpack_message(SCM_CAR(methods), &i_methods[i], FUNC_NAME);
     methods = SCM_CDR(methods);
   }
 
   struct wl_message *i_events = NULL;
-  if (interface->event_count > 0)
-    i_events = scm_calloc(interface->event_count * sizeof(struct wl_message));
-  for (int i = 0; i < interface->event_count; i++) {
+  if (i_interface->event_count > 0)
+    i_events = scm_calloc(i_interface->event_count * sizeof(struct wl_message));
+  for (int i = 0; i < i_interface->event_count; i++) {
     unpack_message(SCM_CAR(events), &i_events[i], FUNC_NAME);
     events = SCM_CDR(events);
   }
 
-  interface->name = scm_to_utf8_string(name);
-  interface->methods = i_methods;
-  interface->events = i_events;
+  i_interface->name = scm_to_utf8_string(name);
+  i_interface->methods = i_methods;
+  i_interface->events = i_events;
 
-  return scm_make_foreign_object_1(scm_wl_interface_type, interface);
+  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
@@ -554,7 +568,7 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_get_class, "wl-proxy-get-class", 1, 0, 0,
 #undef FUNC_NAME
 
 #define FUNC_NAME s_scm_wl_proxy_set_queue
-SCM_DEFINE_PUBLIC(scm_wl_proxy_set_queue, "wl-proxy-set_queue", 2, 0, 0,
+SCM_DEFINE_PUBLIC(scm_wl_proxy_set_queue, "wl-proxy-set-queue", 2, 0, 0,
     (SCM proxy, SCM queue),
     "") {
   struct wl_proxy     *i_proxy;
@@ -565,6 +579,23 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_set_queue, "wl-proxy-set_queue", 2, 0, 0,
   SCM_VALIDATE_WL_EVENT_QUEUE_COPY(SCM_ARG2, queue, i_queue);
 
   wl_proxy_set_queue(i_proxy, i_queue);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+#define FUNC_NAME s_scm_wl_proxy_move
+SCM_DEFINE_PUBLIC(scm_wl_proxy_move, "wl-proxy-move", 2, 0, 0,
+    (SCM src, SCM dst),
+    "") {
+  struct wl_proxy     *src_proxy;
+  struct wl_interface *src_interface;
+  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, src, src_proxy, src_interface);
+  SCM_ASSERT_TYPE(SCM_IS_A_P(dst, scm_wl_proxy_type),
+      dst, SCM_ARG2, FUNC_NAME, "wl-proxy");
+
+  scm_foreign_object_set_x(dst, 0, src_proxy);
+  scm_foreign_object_set_x(src, 0, NULL);
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -743,7 +774,7 @@ SCM_DEFINE_PUBLIC(scm_wl_display_flush, "wl-display-flush", 1, 0, 0,
 
 #define FUNC_NAME s_scm_wl_display_roundtrip_queue
 SCM_DEFINE_PUBLIC(scm_wl_display_roundtrip_queue,
-    "wl-display-rountrip-queue", 2, 0, 0,
+    "wl-display-roundtrip-queue", 2, 0, 0,
     (SCM display, SCM queue),
     "") {
   struct wl_display *i_display;
@@ -878,23 +909,31 @@ SCM_DEFINE_PUBLIC(scm_wl_set_log_port_client, "wl-set-log-port-client", 1, 0, 0,
 #undef FUNC_NAME
 
 static void register_wayland_client_core(void *data) {
+  static const char s_scm_wl_event_queue[] = "<wl-event-queue>";
   scm_wl_event_queue_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-event-queue>"),
+      scm_from_utf8_symbol(s_scm_wl_event_queue),
       scm_list_1(scm_from_utf8_symbol("queue")),
       NULL);
-  scm_c_export("<wl-event-queue>", scm_wl_event_queue_type, NULL);
+  scm_c_define(s_scm_wl_event_queue, scm_wl_event_queue_type);
+  scm_c_export(s_scm_wl_event_queue, NULL);
+
+  static const char s_scm_wl_proxy[] = "<wl-proxy>";
   scm_wl_proxy_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-proxy>"),
+      scm_from_utf8_symbol(s_scm_wl_proxy),
       scm_list_2(
         scm_from_utf8_symbol("proxy"),
         scm_from_utf8_symbol("interface")),
       NULL);
-  scm_c_export("<wl-proxy>", scm_wl_proxy_type, NULL);
+  scm_c_define(s_scm_wl_proxy, scm_wl_proxy_type);
+  scm_c_export(s_scm_wl_proxy, NULL);
+
+  static const char s_scm_wl_interface[] = "<wl-interface>";
   scm_wl_interface_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("<wl-interface>"),
+      scm_from_utf8_symbol(s_scm_wl_interface),
       scm_list_1(scm_from_utf8_symbol("interface")),
       NULL);
-  scm_c_export("<wl-interface>", scm_wl_interface_type, NULL);
+  scm_c_define(s_scm_wl_interface, scm_wl_interface_type);
+  scm_c_export(s_scm_wl_interface, NULL);
 
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-client.x"

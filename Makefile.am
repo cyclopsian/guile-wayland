@@ -21,9 +21,9 @@ SNARF_SOURCES = \
 	guile-wayland/guile-wayland-egl.c \
 	guile-wayland/guile-wayland-client.c
 libguile_wayland_la_SOURCES = $(SNARF_SOURCES) \
-	guile-wayland/guile-wayland-client-init.c \
-libguile_wayland_la_CFLAGS = $(WAYLAND_CFLAGS) $(AM_CFLAGS) $(GUILE_CFLAGS)
-libguile_wayland_la_LIBADD = $(WAYLAND_LIBS) $(GUILE_LIBS)
+	guile-wayland/guile-wayland-client-init.c
+libguile_wayland_la_CFLAGS = $(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) $(AM_CFLAGS) $(GUILE_CFLAGS)
+libguile_wayland_la_LIBADD = $(WAYLAND_CLIENT_LIBS) $(WAYLAND_CURSOR_LIBS) $(WAYLAND_EGL_LIBS) $(GUILE_LIBS)
 libguile_wayland_la_LDFLAGS = -export-dynamic
 
 DOT_X_FILES = $(SNARF_SOURCES:.c=.x)
@@ -34,11 +34,13 @@ $(DOT_X_FILES): %.x : %.c
 
 SCM_BUILT = wayland/config.install.scm wayland/client/protocol.scm
 SCM_NOINST_BUILT = wayland/config.scm
-SOURCES = wayland/scanner.scm
+SOURCES = wayland/client.scm wayland/cursor.scm wayland/egl.scm wayland/scanner.scm
 
 BUILT_SOURCES = $(SCM_BUILT) $(SCM_NOINST_BUILT) $(DOT_X_FILES)
 
 GOBJECTS = $(SCM_BUILT:.scm=.go) $(SOURCES:.scm=.go)
+
+bin_SCRIPTS = wayland-scanner-guile
 
 GUILE_WARNINGS = -Warity-mismatch \
 		 -Wbad-case-datum \
@@ -60,9 +62,9 @@ wayland/config.install.scm: wayland/config.scm.in Makefile
 	sed -e "s|@extensionlib\@|$(guileextensiondir)/libguile-wayland|" \
 	    "$<" > "$@"
 
-wayland/client/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml scanner.scm
-	$(GUILE) -L $(abs_top_srcdir) --no-auto-compile wayland/scanner.scm \
-		client "$<" "$@"
+wayland/client/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml wayland-scanner-guile wayland/scanner.scm
+	$(GUILE) -L $(abs_top_srcdir) --no-auto-compile wayland-scanner-guile \
+		-m "wayland client" client "$<" "$@"
 
 install-data-hook:
 	cd $(DESTDIR)$(moddir)/wayland && mv config.install.scm config.scm
@@ -71,7 +73,6 @@ install-data-hook:
 nobase_mod_DATA = $(SCM_BUILT) $(SOURCES) $(NOCOMP_SOURCES)
 nobase_nodist_obj_DATA = $(GOBJECTS)
 
-pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = guile-wayland.pc
 
 CLEANFILES = $(BUILT_SOURCES) $(GOBJECTS) $(DOT_X_FILES)

@@ -182,17 +182,6 @@
               (exports  #:init-value '())
               (generics #:init-value '(add-listener destroy)))
 
-(define-generic format-symbol)
-(define-generic format-args)
-(define-generic format-func-name)
-(define-generic format-stub)
-(define-generic format-protocol-header)
-(define-generic format-add-listener)
-(define-generic format-destructor)
-(define-generic format-interface-name)
-(define-generic format-messages)
-(define-generic format-protocol-footer)
-
 (define-method (format-symbol (f <scheme-formatter>) str)
   (string->symbol (string-replace-substring str "_" "-")))
 
@@ -243,7 +232,7 @@
                    'wl-proxy-marshal-constructor
                    'wl-proxy-marshal-constructor-versioned)
                'wl-proxy-marshal)))
-    (slot-set! f 'exports (cons name (slot-ref f 'exports)))
+    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
     (slot-set! f 'generics (lset-adjoin eq? (slot-ref f 'generics) req-name))
     ; TODO - interface should be interface->name in function call
     (format #t "(define ~a\n  \"~a\"\n  ~a)\n"
@@ -258,12 +247,35 @@
                         '())
                     (format-args f request #t)))))
 
-(define-method (format-protocol-header (f <scheme-formatter>) protocol)
+(define-method (format-protocol-header
+                 (f <scheme-formatter>) type protocol module-prefix extra-deps)
   (if (slot-bound? protocol 'copyright)
       (format #t "~a\n\n"
               (format-text (slot-ref protocol 'copyright) #:prefix ";;; ")))
-  (pretty-print '(use-modules (oop goops)
-                              (wayland client))))
+
+  (pretty-print
+    '(eval-when (expand load eval)
+      (load-extension (@ (wayland config) *wayland-lib-path*)
+                      "scm_init_wayland")))
+
+  (newline)
+
+  (let* ((proto-name (slot-ref protocol 'name))
+         (core-proto? (equal? proto-name "wayland"))
+         (mod-name (format-symbol
+                     f (if core-proto? "protocol"
+                         (string-append proto-name "-protocol"))))
+         (module-deps `((oop goops)
+                        (wayland ,type core)
+                        ,@(if core-proto? '() `((wayland ,type protocol)))
+                        ,@extra-deps)))
+    (if module-prefix
+      (pretty-print `(define-module
+                       (,@module-prefix ,mod-name)
+                       ,@(fold-right
+                           (λ (m acc) (append (list '#:use-module m) acc))
+                           '() module-deps)))
+      (pretty-print `(use-modules ,@module-deps)))))
 
 (define-method (format-add-listener (f <scheme-formatter>) interface)
   (let* ((int-name (format-symbol f (slot-ref interface 'name)))
@@ -271,7 +283,7 @@
          (events (map (compose (cut format-symbol f <>)
                                (cut slot-ref <> 'name))
                       (slot-ref interface 'events))))
-    (slot-set! f 'exports (cons name (slot-ref f 'exports)))
+    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
     (pretty-print
       `(define* (,name ,int-name #:key ,@events)
                 (wl-proxy-add-listener ,int-name ,@events)))))
@@ -282,7 +294,7 @@
          (destructor (list-index
                        (λ (req) (equal? (slot-ref req 'type) "destructor"))
                        (slot-ref interface 'requests))))
-    (slot-set! f 'exports (cons name (slot-ref f 'exports)))
+    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
     (pretty-print
       `(define (,name ,int-name)
         ,@(if destructor `((wl-proxy-marshal ,int-name ,destructor)) '())
@@ -331,18 +343,24 @@
 
   (for-each
     (λ (interface)
-       (let ((name (format-interface-name f (slot-ref interface 'name))))
-         (slot-set! f 'exports (cons name (slot-ref f 'exports)))
-         (pretty-print `(define ,name
-                          (make-wl-interface
-                            ,(slot-ref interface 'name)
-                            ,(slot-ref interface 'version)
-                            ,(cons 'list (format-messages
-                               f (slot-ref interface 'requests)))
-                            ,(cons 'list (format-messages
-                               f (slot-ref interface 'events))))))
-         (newline)))
-     (slot-ref protocol 'interfaces))
+      (let ((name (format-interface-name f (slot-ref interface 'name))))
+        (slot-set! f 'exports (cons name (slot-ref f 'exports)))
+        (pretty-print `(define ,name (make-wl-interface)))))
+    (slot-ref protocol 'interfaces))
+  (newline)
+  (for-each
+    (λ (interface)
+      (let ((name (format-interface-name f (slot-ref interface 'name))))
+        (pretty-print
+          `(wl-interface-set ,name
+                             ,(slot-ref interface 'name)
+                             ,(slot-ref interface 'version)
+                             ,(cons 'list (format-messages
+                                            f (slot-ref interface 'requests)))
+                             ,(cons 'list (format-messages
+                                            f (slot-ref interface 'events)))))
+        (newline)))
+    (slot-ref protocol 'interfaces))
 
   (for-each
     (λ (generic)
@@ -355,6 +373,7 @@
        (let* ((name (format-symbol f (slot-ref interface 'name)))
               (int-name (format-interface-name f (slot-ref interface 'name)))
               (class-name (format-symbol-append f "<" name ">")))
+         (slot-set! f 'exports (cons class-name (slot-ref f 'exports)))
          (pretty-print `(define-class ,class-name (<wl-proxy>)))
          (pretty-print
            `(define-method
@@ -366,8 +385,7 @@
                               "Wrong type proxy in initialize: "
                               "got ~a, expected " (slot-ref interface 'name))
                            (list (wl-proxy-get-class proxy)) (list proxy)))
-              (slot-set! ,name 'proxy (slot-ref proxy 'proxy))
-              (slot-set! ,name 'interface (slot-ref proxy 'interface))))
+              (wl-proxy-move proxy ,name)))
          (newline)
 
          (for-each
@@ -391,10 +409,11 @@
                        ,name args)))
            (newline))
 
-         (pretty-print
-           `(define-method
-              (destroy (,name ,class-name))
-              (,(format-symbol-append f name "_destroy") ,name)))
+         (unless (equal? (slot-ref interface 'name) "wl_display")
+           (pretty-print
+             `(define-method
+                (destroy (,name ,class-name))
+                (,(format-symbol-append f name "_destroy") ,name))))
          (newline)
 
          (newline)))
@@ -403,13 +422,14 @@
   (pretty-print `(export ,@(reverse (slot-ref f 'exports))
                          ,@(slot-ref f 'generics))))
 
-(define* (wl-scanner type)
-  (define protocol (read-protocol))
+(define* (wl-scanner type #:key module-prefix (extra-deps '()))
   (define f
     (match type
-           ('client (make <scheme-formatter>))))
+           ('client (make <scheme-formatter>))
+           (else (error "type must be one of [client|server]"))))
+  (define protocol (read-protocol))
 
-  (format-protocol-header f protocol)
+  (format-protocol-header f type protocol module-prefix extra-deps)
   (newline) (newline)
 
   (for-each
@@ -436,37 +456,66 @@
   (format-protocol-footer f protocol))
 
 (define usage-text "\
-[OPTIONS] [client|server|c-client|c-server] [input_file output_file]
+[OPTIONS] [client|server] [input_file output_file]
 
 Supported options:
 -h, --help                 Display this help
+
+-m, --module-prefix        Export the protocol as a module with given prefix
+    Example: -m \"myapp protocols\"
+
+-d, --extra-deps           Extra module dependencies
+    Example: -d \"(myapp protocols xdg-shell) (myapp protocols customproto)\"
 ")
 
 (define (wl-scanner-main args)
   (let*
-    ((option-spec '((help       (single-char #\h) (value #f))))
+    ((option-spec '((module-prefix (single-char #\m) (value #t))
+                    (extra-deps    (single-char #\d) (value #t))
+                    (help          (single-char #\h) (value #f))))
      (options (getopt-long args option-spec))
      (rest    (cdar options))
-     (help-wanted (option-ref options 'help #f)))
+     (module-prefix (option-ref options 'module-prefix #f))
+     (extra-deps    (option-ref options 'extra-deps ""))
+     (help-wanted   (option-ref options 'help #f)))
 
     (when help-wanted
-      (format #t "~a ~a" usage-text (car args))
+      (format #t "Usage: ~a ~a" (car args) usage-text)
       (quit 0))
+
+    (define (read-string-vals str)
+      (with-input-from-string str
+        (λ ()
+          (let lp ((vs '()))
+            (let ((v (read)))
+              (if (eof-object? v)(reverse vs) (lp (cons v vs))))))))
 
     (match
       rest
       ((type input output)
        (let
          ((outport (match output
-                          ("-" (current-output-port))
-                          (f (open-output-file f))))
+                     ("-" (current-output-port))
+                     (f (open-output-file f))))
           (inport  (match input
-                          ("-" (current-input-port))
-                          (f (open-input-file f)))))
+                     ("-" (current-input-port))
+                     (f (open-input-file f)))))
+         (unless (member type '("client" "server"))
+           (format (current-error-port)
+                   "Invalid type: ~a\n  First argument must be one of [client|server]\n\n"
+                   type)
+           (format (current-error-port) "Usage: ~a ~a" (car args) usage-text)
+           (quit 1))
          (with-input-from-port
            inport
            (cut with-output-to-port outport
-                (cut wl-scanner (string->symbol type))))))
+                (cut wl-scanner (string->symbol type)
+                     #:extra-deps
+                     (read-string-vals extra-deps)
+                     #:module-prefix
+                     (and=> module-prefix
+                       (compose (cut map string->symbol <>)
+                                (cut string-split <> #\space))))))))
       (_
-        (format #t "~a ~a" usage-text (car args))
+        (format (current-error-port) "Usage: ~a ~a" (car args) usage-text)
         (quit 1)))))

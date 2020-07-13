@@ -17,12 +17,13 @@ SCM_API SCM scm_wl_interface_type;
         p, pos, FUNC_NAME, "wl-proxy"); \
     proxy     = scm_foreign_object_ref(p, 0); \
     interface = scm_foreign_object_ref(p, 1); \
-    SCM_ASSERT_TYPE(proxy,     p, pos, FUNC_NAME, "non-null wl_proxy"); \
-    SCM_ASSERT_TYPE(interface, p, pos, FUNC_NAME, "non-null wl_interface"); \
+    SCM_ASSERT_TYPE(proxy,     p, pos, FUNC_NAME, "non-null wl-proxy"); \
+    SCM_ASSERT_TYPE(interface, p, pos, FUNC_NAME, "non-null wl-interface"); \
   } while (0)
 
-SCM_API SCM scm_make_wl_interface(
-    SCM name, SCM version, SCM methods, SCM events);
+SCM_API SCM scm_make_wl_interface(void);
+SCM_API SCM scm_wl_interface_set(
+    SCM interface, SCM name, SCM version, SCM methods, SCM events);
 SCM_API SCM scm_wl_interface_name(SCM interface);
 SCM_API SCM scm_c_make_wl_proxy(struct wl_proxy *proxy,
     const struct wl_interface *interface);
@@ -41,6 +42,7 @@ SCM_API SCM scm_wl_proxy_get_version(SCM proxy);
 SCM_API SCM scm_wl_proxy_get_id(SCM proxy);
 SCM_API SCM scm_wl_proxy_get_class(SCM proxy);
 SCM_API SCM scm_wl_proxy_set_queue(SCM proxy, SCM queue);
+SCM_API SCM scm_wl_proxy_move(SCM src, SCM dst);
 
 SCM_API SCM scm_wl_display_connect(SCM name);
 SCM_API SCM scm_wl_display_connect_to_fd(SCM fd);

@@ -8,6 +8,8 @@
 config.scm
 config.install.scm
 wayland-scanner-guile
+guile-wayland/guile-wayland-client-init.c
+wayland/client/protocol.scm
 
 # http://www.gnu.org/software/automake
 
@@ -43,7 +45,7 @@ autom4te.cache
 
 /ltmain.sh
 /libtool
-/.libs
+.libs/
 *.lo
 *.la
 

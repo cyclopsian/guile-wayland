@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 AC_INIT([guile-wayland], [1.0], [jason@cycles.network])
-AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign])
+AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
 AC_CONFIG_MACRO_DIRS([m4])
 AM_SILENT_RULES([yes])
+
+PKG_INSTALLDIR
 
 GUILE_PKG([3.0])
 GUILE_PROGS
@@ -18,10 +20,16 @@ if test "$cross_compiling" != no; then
   AC_SUBST([GUILE_TARGET])
 fi
 
-PKG_CHECK_MODULES(WAYLAND, wayland)
-AC_SUBST(WAYLAND_LIBS)
-AC_SUBST(WAYLAND_CFLAGS)
-WAYLAND_DATADIR=`$PKG_CONFIG --print-errors --variable=pkgdatadir wayland`
+PKG_CHECK_MODULES(WAYLAND_CLIENT, wayland-client)
+AC_SUBST(WAYLAND_CLIENT_LIBS)
+AC_SUBST(WAYLAND_CLIENT_CFLAGS)
+PKG_CHECK_MODULES(WAYLAND_CURSOR, wayland-cursor)
+AC_SUBST(WAYLAND_CURSOR_LIBS)
+AC_SUBST(WAYLAND_CURSOR_CFLAGS)
+PKG_CHECK_MODULES(WAYLAND_EGL, wayland-egl)
+AC_SUBST(WAYLAND_EGL_LIBS)
+AC_SUBST(WAYLAND_EGL_CFLAGS)
+WAYLAND_DATADIR=`$PKG_CONFIG --print-errors --variable=pkgdatadir wayland-client`
 AC_SUBST(WAYLAND_DATADIR)
 
 AC_PROG_CC
