@@ -5,5 +5,4 @@
 (define-module (wayland client))
 
 (eval-when (expand load eval)
-  (load-extension "@clientextensionlib@" "scm_init_wayland_client"))
-
+  (load-extension "@extensionlib@" "scm_init_wayland_client"))

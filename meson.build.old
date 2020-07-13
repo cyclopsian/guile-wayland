@@ -41,10 +41,16 @@ guile_exe      = find_program(guile_exe_path, native: true)
 guile_ver = guile.name().split('-').get(1)
 
 subdir('guile-wayland')
-subdir('module')
-subdir('doc')
 
-configure_file(
+guile_godir = root / get_option('libdir') / 'guile' / guile_ver / 'site-ccache'
+
+scm_conf = configuration_data({
+  'guile': guile_exe_path,
+  'moddir': guile_moddir,
+  'godir': guile_godir,
+})
+
+wayland_scanner_guile = configure_file(
   input: 'wayland-scanner-guile.in',
   output: 'wayland-scanner-guile',
   configuration: scm_conf,
@@ -52,4 +58,7 @@ configure_file(
   install_mode: ['rwxr-xr-x'],
   install_dir: get_option('bindir')
 )
+
+subdir('module')
+subdir('doc')
 

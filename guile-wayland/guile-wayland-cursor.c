@@ -214,17 +214,20 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_frame_and_duration,
 
 static void register_wayland_cursor(void *data) {
   scm_wl_cursor_theme_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_cursor_theme"),
-      scm_list_1(scm_from_utf8_symbol("cursor_theme")),
+      scm_from_utf8_symbol("<wl-cursor-theme>"),
+      scm_list_1(scm_from_utf8_symbol("cursor-theme")),
       NULL);
+  scm_c_export("<wl-cursor-theme>", scm_wl_cursor_theme_type, NULL);
   scm_wl_cursor_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_cursor"),
+      scm_from_utf8_symbol("<wl-cursor>"),
       scm_list_1(scm_from_utf8_symbol("cursor")),
       NULL);
+  scm_c_export("<wl-cursor>", scm_wl_cursor_type, NULL);
   scm_wl_cursor_image_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_cursor_image"),
-      scm_list_1(scm_from_utf8_symbol("cursor_image")),
+      scm_from_utf8_symbol("<wl-cursor-image>"),
+      scm_list_1(scm_from_utf8_symbol("cursor-image")),
       NULL);
+  scm_c_export("<wl-cursor-image>", scm_wl_cursor_image_type, NULL);
 
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-cursor.x"
@@ -232,5 +235,5 @@ static void register_wayland_cursor(void *data) {
 }
 
 void scm_init_wayland_cursor(void) {
-  scm_c_define_module("wayland cursor", register_wayland_cursor, NULL);
+  scm_c_define_module("wayland cursor core", register_wayland_cursor, NULL);
 }

@@ -3,8 +3,6 @@
 
 fs = import('fs')
 
-guile_godir = root / get_option('libdir') / 'guile' / guile_ver / 'site-ccache'
-
 guild_exe = find_program(guile.get_variable(pkgconfig: 'guild'), native: true)
 guild_warnings = [
   '-Warity-mismatch',

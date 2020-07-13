@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@GUILE_EXTENSION@
+includedir=@includedir@/guile-wayland
+
+Name: guile-wayland
+Description: Wayland binding for Guile Scheme
+Version: @VERSION@
+Requires.private: wayland guile-@GUILE_EFFECTIVE_VERSION@
+Libs: -L${libdir} -lguile-wayland
+Cflags: -I${includedir}

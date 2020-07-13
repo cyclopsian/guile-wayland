@@ -3,8 +3,6 @@ Upstream-Name: guile-wayland
 Upstream-Contact: Jason Francis <jason@cycles.network>
 Source: https://guile-wayland.cycles.network
 
-# Sample paragraph, commented out:
-#
-# Files: src/*
-# Copyright: $YEAR $NAME <$CONTACT>
-# License: ...
+Files: config.rpath guile-xkbcommon.pc.in
+Copyright: 2020 Jason Francis <jason@cycles.network>
+License: GPL-3.0-or-later

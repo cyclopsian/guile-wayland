@@ -16,5 +16,6 @@ void scm_init_wayland(void) {
   SCM doc_files = scm_variable_ref(
       scm_c_module_lookup(doc_module, "documentation-files"));
   scm_append_x(scm_list_2(doc_files, scm_list_1(
-          scm_from_utf8_string("@moddir@/wayland/wayland-procedures.txt"))));
+          scm_from_utf8_string("@GUILE_SITE@"
+            "/wayland/wayland-procedures.txt"))));
 }

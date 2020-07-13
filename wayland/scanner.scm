@@ -44,11 +44,10 @@
               (since    #:init-keyword #:since)
               (bitfield #:init-keyword #:bitfield)
               (entries  #:init-keyword #:entries #:init-value '()))
-(define-class <wl-entry> ()
+(define-class <wl-entry> (<wl-def-object>)
               (name    #:init-keyword #:name)
               (value   #:init-keyword #:value)
-              (since   #:init-keyword #:since)
-              (summary #:init-keyword #:summary))
+              (since   #:init-keyword #:since))
 
 (define-syntax sxml-match-children-internal
   (syntax-rules ()
@@ -90,9 +89,10 @@
       (sxml-match-children-map
         elems
         ((entry (@ (name ,name) (value ,value)
-                   (since (,since #f)) (summary (,summary #f))))
-         (make <wl-entry>
-               #:name name #:value value #:since since #:summary summary)))))
+                   (since (,since #f)) (summary (,summary #f))) . ,children)
+         (let ((entry (make <wl-entry> #:name name #:value value
+                            #:since since #:summary summary)))
+           (get-description entry children))))))
 
   (define (get-description obj children)
     (sxml-match-children
@@ -353,10 +353,21 @@
   (for-each
     (λ (interface)
        (let* ((name (format-symbol f (slot-ref interface 'name)))
-             (class-name (format-symbol-append f "<" name ">")))
-         (pretty-print `(define-class ,class-name () proxy))
-         (pretty-print `(define-method (initialize (,name ,class-name) proxy)
-                                       (slot-set! ,name 'proxy proxy)))
+              (int-name (format-interface-name f (slot-ref interface 'name)))
+              (class-name (format-symbol-append f "<" name ">")))
+         (pretty-print `(define-class ,class-name (<wl-proxy>)))
+         (pretty-print
+           `(define-method
+              (initialize (,name ,class-name) (proxy <wl-proxy>))
+              (unless (equal? (slot-ref proxy 'interface)
+                              (slot-ref ,int-name 'interface))
+                (scm-error 'wrong-type-arg "initialize"
+                           ,(string-append
+                              "Wrong type proxy in initialize: "
+                              "got ~a, expected " (slot-ref interface 'name))
+                           (list (wl-proxy-get-class proxy)) (list proxy)))
+              (slot-set! ,name 'proxy (slot-ref proxy 'proxy))
+              (slot-set! ,name 'interface (slot-ref proxy 'interface))))
          (newline)
 
          (for-each
@@ -368,7 +379,7 @@
                   (pretty-print
                     `(define-method
                        (,req-name (,name ,class-name) ,@args)
-                       (,func-name (slot-ref ,name 'proxy) ,@args)))
+                       (,func-name ,name ,@args)))
                   (newline))))
            (slot-ref interface 'requests))
 

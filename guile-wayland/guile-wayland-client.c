@@ -370,6 +370,9 @@ static SCM proxy_dispatch_body(void *data) {
   struct dispatch_data *d = data;
   SCM procs = scm_pointer_to_scm(scm_from_pointer((void *) d->impl, NULL));
   SCM proc = scm_c_array_ref_1(procs, d->opcode);
+  if (scm_is_false(proc))
+    return SCM_UNDEFINED;
+
   scm_dynwind_begin(0);
   long argc = signature_arg_count(d->message->signature);
   SCM *argv = scm_malloc(argc * sizeof(SCM));
@@ -470,25 +473,29 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_add_listener, "wl-proxy-add-listener", 1, 0, 1,
         SCM_BOOL_F);
   }
   long i = 0;
-  for (SCM proc = rest; !scm_is_eq(proc, SCM_EOL); proc = SCM_CDR(proc)) {
-    SCM_VALIDATE_PROC(SCM_ARG2 + i, proc);
-    long argc = signature_arg_count(interface->events[i].signature);
-    SCM arities = scm_procedure_minimum_arity(proc);
-    if (!scm_is_false(arities)) {
-      int req = scm_to_int(SCM_CAR(arities));
-      int opt = scm_to_int(SCM_CADR(arities));
-      int restc = scm_to_int(SCM_CADDR(arities));
-      if (SCM_UNLIKELY(req > argc || (!restc && req + opt < argc))) {
-        scm_error(scm_arg_type_key,
-            FUNC_NAME,
-            "Expected procedure of arity ~A in position ~A (~A.~A, opcode ~A)",
-            scm_list_5(
-              scm_from_long(argc),
-              scm_from_int(SCM_ARG2 + i),
-              scm_from_utf8_string(interface->name),
-              scm_from_utf8_string(interface->events[i].name),
-              scm_from_uint32(i)),
-            scm_list_1(proc));
+  for (SCM iter = rest; !scm_is_eq(iter, SCM_EOL); iter = SCM_CDR(iter)) {
+    SCM proc = SCM_CAR(iter);
+    if (!scm_is_false(proc)) {
+      SCM_VALIDATE_PROC(SCM_ARG2 + i, proc);
+      long argc = signature_arg_count(interface->events[i].signature);
+      SCM arities = scm_procedure_minimum_arity(proc);
+      if (!scm_is_false(arities)) {
+        int req = scm_to_int(SCM_CAR(arities));
+        int opt = scm_to_int(SCM_CADR(arities));
+        int restc = scm_to_int(SCM_CADDR(arities));
+        if (SCM_UNLIKELY(req > argc || (!restc && req + opt < argc))) {
+          scm_error(scm_arg_type_key,
+              FUNC_NAME,
+              "Expected procedure of arity ~A in position ~A "
+              "(~A.~A, opcode ~A)",
+              scm_list_5(
+                scm_from_long(argc),
+                scm_from_int(SCM_ARG2 + i),
+                scm_from_utf8_string(interface->name),
+                scm_from_utf8_string(interface->events[i].name),
+                scm_from_uint32(i)),
+              scm_list_1(proc));
+        }
       }
     }
     i++;
@@ -872,19 +879,22 @@ SCM_DEFINE_PUBLIC(scm_wl_set_log_port_client, "wl-set-log-port-client", 1, 0, 0,
 
 static void register_wayland_client_core(void *data) {
   scm_wl_event_queue_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_event_queue"),
+      scm_from_utf8_symbol("<wl-event-queue>"),
       scm_list_1(scm_from_utf8_symbol("queue")),
       NULL);
+  scm_c_export("<wl-event-queue>", scm_wl_event_queue_type, NULL);
   scm_wl_proxy_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_proxy"),
+      scm_from_utf8_symbol("<wl-proxy>"),
       scm_list_2(
         scm_from_utf8_symbol("proxy"),
         scm_from_utf8_symbol("interface")),
       NULL);
+  scm_c_export("<wl-proxy>", scm_wl_proxy_type, NULL);
   scm_wl_interface_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_interface"),
+      scm_from_utf8_symbol("<wl-interface>"),
       scm_list_1(scm_from_utf8_symbol("interface")),
       NULL);
+  scm_c_export("<wl-interface>", scm_wl_interface_type, NULL);
 
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-client.x"
@@ -892,5 +902,6 @@ static void register_wayland_client_core(void *data) {
 }
 
 void scm_init_wayland_client(void) {
-  scm_c_define_module("wayland client core", register_wayland_client_core, NULL);
+  scm_c_define_module("wayland client core",
+      register_wayland_client_core, NULL);
 }

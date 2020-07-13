@@ -85,9 +85,10 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_get_attached_size,
 
 static void register_wayland_egl(void *data) {
   scm_wl_egl_window_type = scm_make_foreign_object_type(
-      scm_from_utf8_symbol("wl_egl_window"),
-      scm_list_1(scm_from_utf8_symbol("egl_window")),
+      scm_from_utf8_symbol("<wl-egl-window>"),
+      scm_list_1(scm_from_utf8_symbol("egl-window")),
       NULL);
+  scm_c_export("<wl-egl-window>", scm_wl_egl_window_type, NULL);
 
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-egl.x"
@@ -95,5 +96,5 @@ static void register_wayland_egl(void *data) {
 }
 
 void scm_init_wayland_egl(void) {
-  scm_c_define_module("wayland egl", register_wayland_egl, NULL);
+  scm_c_define_module("wayland egl core", register_wayland_egl, NULL);
 }
