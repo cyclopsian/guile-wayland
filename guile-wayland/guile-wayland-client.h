@@ -42,6 +42,7 @@ SCM_API SCM scm_wl_proxy_get_version(SCM proxy);
 SCM_API SCM scm_wl_proxy_get_id(SCM proxy);
 SCM_API SCM scm_wl_proxy_get_class(SCM proxy);
 SCM_API SCM scm_wl_proxy_set_queue(SCM proxy, SCM queue);
+SCM_API SCM scm_wl_proxy_assert_type(SCM proxy, SCM interface);
 SCM_API SCM scm_wl_proxy_move(SCM src, SCM dst);
 
 SCM_API SCM scm_wl_display_connect(SCM name);

@@ -41,7 +41,8 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_theme_load, "wl-cursor-theme-load", 3, 0, 0,
     "") {
   SCM client_proto = scm_c_resolve_module("wayland client protocol");
   SCM sinterface = scm_c_module_lookup(client_proto, "wl-shm-interface");
-  struct wl_interface *shm_interface = scm_foreign_object_ref(sinterface, 0);
+  struct wl_interface *shm_interface
+    = scm_foreign_object_ref(scm_variable_ref(sinterface), 0);
 
   scm_dynwind_begin(0);
   char *i_name = NULL;
@@ -107,7 +108,8 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_image_get_buffer,
     "") {
   SCM client_proto = scm_c_resolve_module("wayland client protocol");
   SCM binterface = scm_c_module_lookup(client_proto, "wl-buffer-interface");
-  struct wl_interface *buffer_interface = scm_foreign_object_ref(binterface, 0);
+  struct wl_interface *buffer_interface
+    = scm_foreign_object_ref(scm_variable_ref(binterface), 0);
 
   struct wl_cursor_image *i_image;
   SCM_VALIDATE_WL_CURSOR_IMAGE_COPY(SCM_ARG1, image, i_image);

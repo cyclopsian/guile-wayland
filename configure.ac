@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 AC_INIT([guile-wayland], [1.0], [jason@cycles.network])
-AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
+AM_INIT_AUTOMAKE([gnu -Wall -Werror -std=gnu11 foreign subdir-objects])
 AC_CONFIG_MACRO_DIRS([m4])
 AM_SILENT_RULES([yes])
 
@@ -14,6 +14,8 @@ GUILE_SITE_DIR
 GUILE_FLAGS
 AC_PATH_PROG(GUILE_SNARF,[guile-snarf-$GUILE_EFFECTIVE_VERSION])
 AC_SUBST(GUILE_SNARF)
+GUILE_LIBDIR=`$PKG_CONFIG --print-errors --variable=libdir guile-$GUILE_EFFECTIVE_VERSION`
+AC_SUBST(GUILE_LIBDIR)
 
 if test "$cross_compiling" != no; then
   GUILE_TARGET="--target=$host_alias"
@@ -21,14 +23,17 @@ if test "$cross_compiling" != no; then
 fi
 
 PKG_CHECK_MODULES(WAYLAND_CLIENT, wayland-client)
+PKG_CHECK_MODULES(WAYLAND_CURSOR, wayland-cursor)
+PKG_CHECK_MODULES(WAYLAND_EGL, wayland-egl)
+PKG_CHECK_MODULES(WAYLAND_PROTOCOLS, wayland-protocols)
 AC_SUBST(WAYLAND_CLIENT_LIBS)
 AC_SUBST(WAYLAND_CLIENT_CFLAGS)
-PKG_CHECK_MODULES(WAYLAND_CURSOR, wayland-cursor)
 AC_SUBST(WAYLAND_CURSOR_LIBS)
 AC_SUBST(WAYLAND_CURSOR_CFLAGS)
-PKG_CHECK_MODULES(WAYLAND_EGL, wayland-egl)
 AC_SUBST(WAYLAND_EGL_LIBS)
 AC_SUBST(WAYLAND_EGL_CFLAGS)
+WAYLAND_PROTOCOLDIR=`$PKG_CONFIG --print-errors --variable=pkgdatadir wayland-protocols`
+AC_SUBST(WAYLAND_PROTOCOLDIR)
 WAYLAND_DATADIR=`$PKG_CONFIG --print-errors --variable=pkgdatadir wayland-client`
 AC_SUBST(WAYLAND_DATADIR)
 
@@ -36,9 +41,10 @@ AC_PROG_CC
 AM_PROG_AR
 LT_INIT([disable-static])
 AC_CONFIG_FILES([
+env
 Makefile
 guile-wayland.pc
 wayland-scanner-guile
-guile-wayland/guile-wayland-client-init.c
+wayland/config.scm
 ])
 AC_OUTPUT

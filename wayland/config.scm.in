@@ -4,4 +4,4 @@
 
 (define-module (wayland config))
 
-(define-public *wayland-lib-path* "@extensionlib@")
+(define-public *wl-protocol-dir* "@WAYLAND_PROTOCOLDIR@")

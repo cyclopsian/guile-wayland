@@ -80,6 +80,9 @@ static void unpack_message(SCM message, struct wl_message *out,
     SCM_ASSERT_TYPE(interface, i, pos, FUNC_NAME, "non-null wl-interface"); \
   } while (0)
 
+#define INTERFACE_EQ(_a, _b) \
+  ((_a) == (_b) || strcmp((_a)->name, (_b)->name) == 0)
+
 #define FUNC_NAME s_scm_make_wl_interface
 SCM_DEFINE_PUBLIC(scm_make_wl_interface, "make-wl-interface", 0, 0, 0,
     (void),
@@ -217,7 +220,7 @@ static union wl_argument *unpack_marshal_args(long pos, const char *subr,
       } else {
         struct wl_interface *arg_interface;
         SCM_VALIDATE_WL_PROXY_COPY(pos + i, arg, args[i].o, arg_interface);
-        SCM_ASSERT_TYPE(request->types[i] == arg_interface,
+        SCM_ASSERT_TYPE(INTERFACE_EQ(request->types[i], arg_interface),
             arg, pos + i, FUNC_NAME, arg_interface->name);
       }
       break;
@@ -567,6 +570,24 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_get_class, "wl-proxy-get-class", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+#define FUNC_NAME s_scm_wl_proxy_get_symbol
+SCM_DEFINE_PUBLIC(scm_wl_proxy_get_symbol, "wl-proxy-get-symbol", 1, 0, 0,
+    (SCM proxy),
+    "") {
+  struct wl_proxy     *i_proxy;
+  struct wl_interface *interface;
+  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, proxy, i_proxy, interface);
+  char *symbol = strdup(wl_proxy_get_class(i_proxy));
+  if (symbol == NULL)
+    scm_report_out_of_memory();
+  for (char *s = symbol; *s; s++) {
+    if (*s == '_')
+      *s = '-';
+  }
+  return scm_from_utf8_symbol(symbol);
+}
+#undef FUNC_NAME
+
 #define FUNC_NAME s_scm_wl_proxy_set_queue
 SCM_DEFINE_PUBLIC(scm_wl_proxy_set_queue, "wl-proxy-set-queue", 2, 0, 0,
     (SCM proxy, SCM queue),
@@ -583,6 +604,23 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_set_queue, "wl-proxy-set-queue", 2, 0, 0,
 }
 #undef FUNC_NAME
 
+#define FUNC_NAME s_scm_wl_proxy_assert_type
+SCM_DEFINE_PUBLIC(scm_wl_proxy_assert_type, "wl-proxy-assert-type", 2, 0, 0,
+    (SCM proxy, SCM interface),
+    "") {
+  struct wl_proxy     *i_proxy;
+  struct wl_interface *i_interface;
+  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, proxy, i_proxy, i_interface);
+  struct wl_interface *c_interface;
+  SCM_VALIDATE_WL_INTERFACE_COPY(SCM_ARG2, interface, c_interface);
+
+  SCM_ASSERT_TYPE(INTERFACE_EQ(i_interface, c_interface),
+      proxy, SCM_ARG1, FUNC_NAME, c_interface->name);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 #define FUNC_NAME s_scm_wl_proxy_move
 SCM_DEFINE_PUBLIC(scm_wl_proxy_move, "wl-proxy-move", 2, 0, 0,
     (SCM src, SCM dst),
@@ -594,6 +632,7 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_move, "wl-proxy-move", 2, 0, 0,
       dst, SCM_ARG2, FUNC_NAME, "wl-proxy");
 
   scm_foreign_object_set_x(dst, 0, src_proxy);
+  scm_foreign_object_set_x(dst, 1, src_interface);
   scm_foreign_object_set_x(src, 0, NULL);
 
   return SCM_UNSPECIFIED;
@@ -603,7 +642,7 @@ SCM_DEFINE_PUBLIC(scm_wl_proxy_move, "wl-proxy-move", 2, 0, 0,
 static inline struct wl_interface *get_wl_display_interface(void) {
   SCM client_proto = scm_c_resolve_module("wayland client protocol");
   SCM interface = scm_c_module_lookup(client_proto, "wl-display-interface");
-  return scm_foreign_object_ref(interface, 0);
+  return scm_foreign_object_ref(scm_variable_ref(interface), 0);
 }
 
 #define FUNC_NAME s_scm_wl_display_connect
@@ -620,6 +659,7 @@ SCM_DEFINE_PUBLIC(scm_wl_display_connect, "wl-display-connect", 0, 1, 0,
   struct wl_display *display = wl_display_connect(i_name);
   if (!display)
     scm_syserror(FUNC_NAME);
+  scm_dynwind_end();
   return scm_c_make_wl_proxy((struct wl_proxy *) display,
       get_wl_display_interface());
 }
@@ -644,7 +684,7 @@ SCM_DEFINE_PUBLIC(scm_wl_display_connect_to_fd, "wl-display-connect-to-fd",
   do { \
     struct wl_interface *interface; \
     SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, display, i_display, interface); \
-    SCM_ASSERT_TYPE(interface == get_wl_display_interface(), \
+    SCM_ASSERT_TYPE(INTERFACE_EQ(interface, get_wl_display_interface()), \
         display, pos, FUNC_NAME, interface->name); \
   } while (0);
 

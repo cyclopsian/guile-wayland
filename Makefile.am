@@ -19,7 +19,8 @@ libguile_wayland_la_include_HEADERS = \
 SNARF_SOURCES = \
 	guile-wayland/guile-wayland-cursor.c \
 	guile-wayland/guile-wayland-egl.c \
-	guile-wayland/guile-wayland-client.c
+	guile-wayland/guile-wayland-client.c \
+	guile-wayland/guile-wayland-utils.c
 libguile_wayland_la_SOURCES = $(SNARF_SOURCES) \
 	guile-wayland/guile-wayland-client-init.c
 libguile_wayland_la_CFLAGS = $(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) $(AM_CFLAGS) $(GUILE_CFLAGS)
@@ -32,11 +33,16 @@ $(DOT_X_FILES): %.x : %.c
 	$(GUILE_SNARF) $(libguile_wayland_la_CFLAGS) $< > $@ \
 		|| { rm $@; false; }
 
-SCM_BUILT = wayland/config.install.scm wayland/client/protocol.scm
-SCM_NOINST_BUILT = wayland/config.scm
-SOURCES = wayland/client.scm wayland/cursor.scm wayland/egl.scm wayland/scanner.scm
+SCM_BUILT = wayland/client/protocol.scm
+SOURCES = \
+	  wayland/client.scm \
+	  wayland/client/utils.scm \
+	  wayland/config.scm \
+	  wayland/cursor.scm \
+	  wayland/egl.scm \
+	  wayland/scanner.scm
 
-BUILT_SOURCES = $(SCM_BUILT) $(SCM_NOINST_BUILT) $(DOT_X_FILES)
+BUILT_SOURCES = $(SCM_BUILT) $(DOT_X_FILES)
 
 GOBJECTS = $(SCM_BUILT:.scm=.go) $(SOURCES:.scm=.go)
 
@@ -50,25 +56,11 @@ GUILE_WARNINGS = -Warity-mismatch \
 		 -Wunbound-variable
 
 $(GOBJECTS): %.go: %.scm $(guileextension_LTLIBRARIES) wayland/config.scm
-	echo $(guileextension_LTLIBRARIES)
-	$(GUILD) compile -L $(abs_top_srcdir) -L $(abs_top_builddir) \
-		$(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
-
-wayland/config.scm: wayland/config.scm.in Makefile
-	sed -e "s|@extensionlib\@|$(abs_top_builddir)/libguile-wayland|" \
-	    "$<" > "$@"
-
-wayland/config.install.scm: wayland/config.scm.in Makefile
-	sed -e "s|@extensionlib\@|$(guileextensiondir)/libguile-wayland|" \
-	    "$<" > "$@"
+	./env $(GUILD) compile $(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
 
 wayland/client/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml wayland-scanner-guile wayland/scanner.scm
-	$(GUILE) -L $(abs_top_srcdir) --no-auto-compile wayland-scanner-guile \
+	./env $(GUILE) --no-auto-compile wayland-scanner-guile \
 		-m "wayland client" client "$<" "$@"
-
-install-data-hook:
-	cd $(DESTDIR)$(moddir)/wayland && mv config.install.scm config.scm
-	cd $(DESTDIR)$(objdir)/wayland && mv config.install.go config.go
 
 nobase_mod_DATA = $(SCM_BUILT) $(SOURCES) $(NOCOMP_SOURCES)
 nobase_nodist_obj_DATA = $(GOBJECTS)

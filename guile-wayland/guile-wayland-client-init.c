@@ -7,15 +7,11 @@
 #include "guile-wayland-cursor.h"
 #include "guile-wayland-egl.h"
 
+void scm_init_wayland_utils(void);
+
 void scm_init_wayland(void) {
   scm_init_wayland_client();
   scm_init_wayland_cursor();
   scm_init_wayland_egl();
-
-  SCM doc_module = scm_c_resolve_module("ice-9 documentation");
-  SCM doc_files = scm_variable_ref(
-      scm_c_module_lookup(doc_module, "documentation-files"));
-  scm_append_x(scm_list_2(doc_files, scm_list_1(
-          scm_from_utf8_string("@GUILE_SITE@"
-            "/wayland/wayland-procedures.txt"))));
+  scm_init_wayland_utils();
 }

@@ -2,25 +2,25 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(eval-when (expand load eval)
-  (load-extension (@ (wayland config) *wayland-lib-path*)
-                  "scm_init_wayland"))
+(load-extension "libguile-wayland" "scm_init_wayland")
 
 (define-module (wayland client)
+  #:use-module (ice-9 match)
   #:use-module (oop goops)
   #:use-module (wayland client core)
   #:use-module (wayland client protocol)
       #:export (name
 
                 create-wrapper wrapper-destroy
-                get-version get-id get-class set-queue
+                get-version get-id get-class get-symbol set-queue
 
                 disconnect get-fd dispatch dispatch-queue
                 dispatch-queue-pending dispatch-pending get-error
                 get-protocol-error flush roundtrip-queue roundtrip create-queue
                 prepare-read-queue prepare-read cancel-read read-events)
    #:re-export (<wl-display> <wl-event-queue>
-                destroy wl-set-log-port-client))
+                destroy wl-set-log-port-client)
+   #:re-export-and-replace (initialize))
 
 (module-use! (module-public-interface (current-module))
              (resolve-interface '(wayland client protocol)))
@@ -49,17 +49,21 @@
 (define-method (get-class (proxy <wl-proxy>))
   (wl-proxy-get-class proxy))
 
+(define-method (get-symbol (proxy <wl-proxy>))
+  (wl-proxy-get-symbol proxy))
+
 (define-method (set-queue (proxy <wl-proxy>) (queue <wl-event-queue>))
   (wl-proxy-set-queue proxy queue))
 
-(define-method (initialize (disp <wl-display>))
-  (wl-proxy-move (wl-display-connect) disp))
-
-(define-method (initialize (disp <wl-display>) (name <string>))
-  (wl-proxy-move (wl-display-connect name) (disp)))
-
-(define-method (initialize (disp <wl-display>) (fd <integer>))
-  (wl-proxy-move (wl-display-connect-to-fd fd) (disp)))
+(define-method (initialize (disp <wl-display>) args)
+  (wl-proxy-move
+    (match args
+      ((arg)
+        (cond
+          ((is-a? arg <string>) (wl-display-connect arg))
+          ((is-a? arg <integer>) (wl-display-connect-to-fd arg))))
+      (() (wl-display-connect)))
+    disp))
 
 (define-method (disconnect (disp <wl-display>))
   (wl-display-disconnect disp))

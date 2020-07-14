@@ -16,7 +16,7 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_create, "wl-egl-window-create", 3, 0, 0,
   SCM client_proto = scm_c_resolve_module("wayland client protocol");
   SCM sinterface = scm_c_module_lookup(client_proto, "wl-surface-interface");
   struct wl_interface *surface_interface
-    = scm_foreign_object_ref(sinterface, 0);
+    = scm_foreign_object_ref(scm_variable_ref(sinterface), 0);
 
   struct wl_surface *i_surface;
   struct wl_interface *interface;
