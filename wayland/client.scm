@@ -3,13 +3,14 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
 (eval-when (expand load eval)
-  (load-extension "libguile-wayland" "scm_init_wayland_client"))
+  (load-extension "libguile-wayland-client" "scm_init_wayland_client"))
 
 (define-module (wayland client)
   #:use-module (ice-9 match)
   #:use-module (oop goops)
   #:use-module (wayland client core)
   #:use-module (wayland client protocol)
+  #:use-module (wayland util)
       #:export (interface name
 
                 create-wrapper wrapper-destroy

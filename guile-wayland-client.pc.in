@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@GUILE_EXTENSION@
+includedir=@includedir@/guile-wayland
+wayland_scanner_guile=@bindir@/wayland-scanner-guile
+
+Name: guile-wayland-client
+Description: Wayland client bindings for Guile Scheme
+Version: @VERSION@
+Requires.private: wayland guile-@GUILE_EFFECTIVE_VERSION@
+Libs: -L${libdir} -lguile-wayland-client
+Cflags: -I${includedir}

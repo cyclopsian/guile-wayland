@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 *.go
+*.go.*
 *.x
 *.pc
 env
 config.scm
 wayland-scanner-guile
-wayland/client/protocol.scm
+wayland/*/protocol.scm
 
 # http://www.gnu.org/software/automake
 

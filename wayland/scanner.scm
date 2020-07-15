@@ -283,11 +283,11 @@
     (format-newline f)
     (format-newline f))
 
-  (format-pretty f
-    `(eval-when (expand load eval)
-      (load-extension "libguile-wayland"
-                       ,(string-append
-                          "scm_init_wayland_" (symbol->string type)))))
+  (let ((type-str (symbol->string type)))
+    (format-pretty f
+      `(eval-when (expand load eval)
+        (load-extension ,(string-append "libguile-wayland-" type-str)
+                        ,(string-append "scm_init_wayland_" type-str)))))
 
   (format-newline f)
 
@@ -297,6 +297,7 @@
          (module-deps `((oop goops)
                         (wayland ,type core)
                         ,@(if core-proto? '() `((wayland ,type protocol)))
+                        (wayland util)
                         ,@extra-deps)))
     (if module-prefix
       (format-pretty f `(define-module

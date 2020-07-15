@@ -3,14 +3,14 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
 (eval-when (expand load eval)
-  (load-extension "libguile-wayland" "scm_init_wayland_client"))
+  (load-extension "libguile-wayland-client" "scm_init_wayland_client"))
 
-(define-module (wayland client utils)
+(define-module (wayland client util)
   #:use-module (ice-9 optargs)
   #:use-module (oop goops)
   #:use-module (srfi srfi-2)
   #:use-module (wayland client)
-  #:use-module (wayland utils)
+  #:use-module (wayland util)
   #:export (create-argb-buffer <wl-mapped-buffer>
             wl-buffer fdes data stride size width height unmap destroy
 

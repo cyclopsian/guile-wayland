@@ -7,7 +7,7 @@
   #:use-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (wayland client)
-  #:use-module (wayland client utils)
+  #:use-module (wayland client util)
   #:use-module (wayland scanner)
   #:duplicates (merge-generics))
 

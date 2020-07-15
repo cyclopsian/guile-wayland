@@ -10,7 +10,6 @@
 SCM_API SCM scm_wl_proxy_class_type;
 SCM_API SCM scm_wl_event_queue_type;
 SCM_API SCM scm_wl_proxy_type;
-SCM_API SCM scm_wl_interface_type;
 
 #define SCM_VALIDATE_WL_PROXY_COPY(pos, p, proxy, interface) \
   do { \
@@ -22,10 +21,6 @@ SCM_API SCM scm_wl_interface_type;
     SCM_ASSERT_TYPE(interface, p, pos, FUNC_NAME, "non-null wl-interface"); \
   } while (0)
 
-SCM_API SCM scm_make_wl_interface(void);
-SCM_API SCM scm_wl_interface_set(
-    SCM interface, SCM name, SCM version, SCM methods, SCM events);
-SCM_API SCM scm_wl_interface_name(SCM interface);
 SCM_API SCM scm_c_make_wl_proxy(struct wl_proxy *proxy,
     const struct wl_interface *interface);
 
@@ -67,7 +62,6 @@ SCM_API SCM scm_wl_display_read_events(SCM display);
 
 SCM_API SCM scm_wl_set_log_port_client(SCM port);
 
-void scm_i_init_wayland_client_core(void);
 SCM_API void scm_init_wayland_client(void);
 
 #endif
