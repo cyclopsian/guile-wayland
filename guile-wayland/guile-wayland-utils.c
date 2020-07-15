@@ -102,7 +102,7 @@ static void register_wayland_utils(void *data) {
 #endif
 }
 
-void scm_init_wayland_utils(void) {
+void scm_i_init_wayland_utils(void) {
   scm_c_define_module("wayland utils",
       register_wayland_utils, NULL);
 }

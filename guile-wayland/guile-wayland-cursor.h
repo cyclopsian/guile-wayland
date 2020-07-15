@@ -23,6 +23,6 @@ SCM_API SCM scm_wl_cursor_frame_and_duration(SCM cursor, SCM time);
 SCM_API SCM scm_wl_cursor_images(SCM cursor);
 SCM_API SCM scm_wl_cursor_name(SCM cursor);
 
-void scm_init_wayland_cursor(void);
+void scm_i_init_wayland_cursor(void);
 
 #endif

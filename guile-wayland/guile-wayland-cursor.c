@@ -244,6 +244,6 @@ static void register_wayland_cursor(void *data) {
 #endif
 }
 
-void scm_init_wayland_cursor(void) {
+void scm_i_init_wayland_cursor(void) {
   scm_c_define_module("wayland cursor core", register_wayland_cursor, NULL);
 }

@@ -2,7 +2,8 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(load-extension "libguile-wayland" "scm_init_wayland")
+(eval-when (expand load eval)
+  (load-extension "libguile-wayland" "scm_init_wayland_client"))
 
 (define-module (wayland client utils)
   #:use-module (ice-9 optargs)
@@ -14,8 +15,8 @@
             wl-buffer fdes data stride size width height unmap destroy
 
             listen-interfaces <wl-object-store>
-            get get-keywords wl-registry objects ids)
-  #:re-export (initialize remove))
+            get get-keywords wl-registry objects ids remove)
+  #:re-export (initialize))
 
 (define-class <wl-mapped-buffer> ()
   (wl-buffer #:accessor wl-buffer #:init-keyword #:wl-buffer)
@@ -52,7 +53,7 @@
 
 (define-class <wl-object-store> ()
   (wl-registry #:accessor wl-registry)
-  (objects     #:accessor objects #:init-thunk make-hash-table))
+  (objects     #:accessor objects #:init-thunk make-hash-table)
   (ids         #:accessor ids     #:init-thunk make-hash-table))
 
 (define-method (initialize (store <wl-object-store>) . args)
@@ -97,29 +98,29 @@
 (define-method (listen-interfaces (disp <wl-display>) . interfaces)
   (set! interfaces
     (map (λ (def) (if (is-a? def <class>) `(,def) def)) interfaces))
-  (let ((store (make <wl-object-store> disp))
-        (is-multiple? (λ (cls)
-                        (->bool (member cls (list <wl-output> <wl-seat>)))))
-        (unpack
-          (lambda* (id interface obj-version cls
-                       #:key (version 1)
-                             (before noop) (after noop) (remove noop)
-                             (mutliple? (is-multiple? cls)))
-            (when (and (equal? interface (name cls)) (<= version obj-version))
-              ((or before noop))
-              (let ((obj (bind (wl-registry store) id def version))
-                    (objs (hashq-ref (objects store) cls)))
-                (hashq-set! (objects store) cls
-                            (if multiple?
-                                (if objs (cons obj objs) (list obj))
-                                obj))
-                (hashq-set! (ids store) id (cons obj (or remove noop)))
-                ((or after noop) obj)))))
-        (check-required
-          (lambda* (cls #:key (required? #t) (version 1))
-            (when (and required? (not (hashq-ref (objects store) cls)))
-              (error (format #f "~a v~a interface not found"
-                             (class-name cls) version))))))
+  (let* ((store (make <wl-object-store> disp))
+         (is-multiple? (λ (cls)
+                         (->bool (member cls (list <wl-output> <wl-seat>)))))
+         (unpack
+           (lambda* (id interface obj-version cls
+                        #:key (version 1)
+                              (before noop) (after noop) (remove noop)
+                              (multiple? (is-multiple? cls)))
+             (when (and (equal? interface (name cls)) (<= version obj-version))
+               ((or before noop))
+               (let ((obj (bind (wl-registry store) id cls version))
+                     (objs (hashq-ref (objects store) cls)))
+                 (hashq-set! (objects store) cls
+                             (if multiple?
+                                 (if objs (cons obj objs) (list obj))
+                                 obj))
+                 (hashq-set! (ids store) id (cons obj (or remove noop)))
+                 ((or after noop) obj)))))
+         (check-required
+           (lambda* (cls #:key (required? #t) (version 1))
+             (when (and required? (not (hashq-ref (objects store) cls)))
+               (error (format #f "~a v~a interface not found"
+                              (class-name cls) version))))))
     (add-listener
       (wl-registry store)
       #:global

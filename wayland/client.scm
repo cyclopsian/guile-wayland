@@ -2,14 +2,15 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(load-extension "libguile-wayland" "scm_init_wayland")
+(eval-when (expand load eval)
+  (load-extension "libguile-wayland" "scm_init_wayland_client"))
 
 (define-module (wayland client)
   #:use-module (ice-9 match)
   #:use-module (oop goops)
   #:use-module (wayland client core)
   #:use-module (wayland client protocol)
-      #:export (name
+      #:export (interface name
 
                 create-wrapper wrapper-destroy
                 get-version get-id get-class get-symbol set-queue
@@ -18,12 +19,25 @@
                 dispatch-queue-pending dispatch-pending get-error
                 get-protocol-error flush roundtrip-queue roundtrip create-queue
                 prepare-read-queue prepare-read cancel-read read-events)
-   #:re-export (<wl-display> <wl-event-queue>
-                destroy wl-set-log-port-client)
-   #:re-export-and-replace (initialize))
+   #:re-export (<wl-display> <wl-event-queue> <wl-proxy> <wl-proxy-class>
+                initialize destroy wl-set-log-port-client)
+     #:replace (bind)
+  #:duplicates (merge-generics))
 
 (module-use! (module-public-interface (current-module))
              (resolve-interface '(wayland client protocol)))
+
+(define-syntax add-accessors
+  (syntax-rules ()
+    ((_ class)
+     ((@@ (oop goops) compute-slot-accessors) class (class-slots class)))
+    ((_ class name rest ...)
+     (begin
+       (define-accessor name)
+       (slot-set! (class-slot-definition class 'name) 'accessor name)
+       (add-accessors class rest ...)))))
+
+(add-accessors <wl-proxy-class> interface)
 
 (define-method (name (interface <wl-interface>))
   (wl-interface-name interface))
@@ -31,7 +45,7 @@
 (define-method (destroy (queue <wl-event-queue>))
   (wl-event-queue-destroy queue))
 
-(define-method (initialze (proxy <wl-proxy>) (other <wl-proxy>))
+(define-method (initialize (proxy <wl-proxy>) (other <wl-proxy>))
   (wl-proxy-move other proxy))
 
 (define-method (create-wrapper (proxy <wl-proxy>))
@@ -112,3 +126,7 @@
 
 (define-method (read-events (disp <wl-display>))
   (wl-display-read-events disp))
+
+(define-method
+  (bind (registry <wl-registry>) name (cls <wl-proxy-class>) version)
+  (bind registry name (interface cls) version))

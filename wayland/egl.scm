@@ -2,15 +2,16 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(load-extension "libguile-wayland" "scm_init_wayland")
+(eval-when (expand load eval)
+  (load-extension "libguile-wayland" "scm_init_wayland_client"))
 
 (define-module (wayland egl)
   #:use-module (oop goops)
   #:use-module (wayland egl core)
   #:use-module (wayland client protocol)
       #:export (resize get-attached-size)
-   #:re-export (<wl-egl-window> destroy)
-   #:re-export-and-replace (initialize))
+   #:re-export (<wl-egl-window> initialize delay destroy)
+  #:duplicates (merge-generics))
 
 (define-method (initialize (egl-window <wl-egl-window>) args)
   (let ((other (apply wl-egl-window-create args)))

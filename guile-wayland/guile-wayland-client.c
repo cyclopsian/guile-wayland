@@ -10,7 +10,11 @@
 #include <wayland-client-core.h>
 
 #include "guile-wayland-client.h"
+#include "guile-wayland-cursor.h"
+#include "guile-wayland-egl.h"
+#include "guile-wayland-utils.h"
 
+SCM scm_wl_proxy_class_type;
 SCM scm_wl_event_queue_type;
 SCM scm_wl_proxy_type;
 SCM scm_wl_interface_type;
@@ -949,6 +953,20 @@ SCM_DEFINE_PUBLIC(scm_wl_set_log_port_client, "wl-set-log-port-client", 1, 0, 0,
 #undef FUNC_NAME
 
 static void register_wayland_client_core(void *data) {
+  SCM class_type
+    = scm_variable_ref(scm_c_public_lookup("oop goops", "<class>"));
+  SCM make_class
+    = scm_variable_ref(scm_c_public_lookup("oop goops", "make-class"));
+
+  static const char s_scm_wl_proxy_class[] = "<wl-proxy-class>";
+  scm_wl_proxy_class_type = scm_call_4(make_class,
+      scm_list_1(class_type),
+      scm_list_1(scm_list_1(scm_from_utf8_symbol("interface"))),
+      scm_from_utf8_keyword("name"),
+      scm_from_utf8_symbol(s_scm_wl_proxy_class));
+  scm_c_define(s_scm_wl_proxy_class, scm_wl_proxy_class_type);
+  scm_c_export(s_scm_wl_proxy_class, NULL);
+
   static const char s_scm_wl_event_queue[] = "<wl-event-queue>";
   scm_wl_event_queue_type = scm_make_foreign_object_type(
       scm_from_utf8_symbol(s_scm_wl_event_queue),
@@ -980,7 +998,14 @@ static void register_wayland_client_core(void *data) {
 #endif
 }
 
-void scm_init_wayland_client(void) {
+void scm_i_init_wayland_client_core(void) {
   scm_c_define_module("wayland client core",
       register_wayland_client_core, NULL);
+}
+
+void scm_init_wayland_client(void) {
+  scm_i_init_wayland_client_core();
+  scm_i_init_wayland_cursor();
+  scm_i_init_wayland_egl();
+  scm_i_init_wayland_utils();
 }

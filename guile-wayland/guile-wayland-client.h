@@ -7,6 +7,7 @@
 #include <libguile/scm.h>
 #include <wayland-client-core.h>
 
+SCM_API SCM scm_wl_proxy_class_type;
 SCM_API SCM scm_wl_event_queue_type;
 SCM_API SCM scm_wl_proxy_type;
 SCM_API SCM scm_wl_interface_type;
@@ -66,6 +67,7 @@ SCM_API SCM scm_wl_display_read_events(SCM display);
 
 SCM_API SCM scm_wl_set_log_port_client(SCM port);
 
-void scm_init_wayland_client(void);
+void scm_i_init_wayland_client_core(void);
+SCM_API void scm_init_wayland_client(void);
 
 #endif

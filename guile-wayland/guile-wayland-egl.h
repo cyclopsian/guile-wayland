@@ -14,6 +14,6 @@ SCM_API SCM scm_wl_egl_window_resize(SCM egl_window,
     SCM width, SCM height, SCM dx, SCM dy);
 SCM_API SCM scm_wl_egl_window_get_attached_size(SCM egl_window);
 
-void scm_init_wayland_egl(void);
+void scm_i_init_wayland_egl(void);
 
 #endif

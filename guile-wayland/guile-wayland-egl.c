@@ -97,6 +97,6 @@ static void register_wayland_egl(void *data) {
 #endif
 }
 
-void scm_init_wayland_egl(void) {
+void scm_i_init_wayland_egl(void) {
   scm_c_define_module("wayland egl core", register_wayland_egl, NULL);
 }

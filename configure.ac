@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 AC_INIT([guile-wayland], [1.0], [jason@cycles.network])
-AM_INIT_AUTOMAKE([gnu -Wall -Werror -std=gnu11 foreign subdir-objects])
+AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
 AC_CONFIG_MACRO_DIRS([m4])
 AM_SILENT_RULES([yes])
+AX_CHECK_COMPILE_FLAG([-std=c11], [AX_APPEND_FLAG([-std=c11], [CFLAGS])],
+  [AC_MSG_FAILURE([Compiler does not support -std=c11])])
 
 PKG_INSTALLDIR
 
@@ -40,11 +42,7 @@ AC_SUBST(WAYLAND_DATADIR)
 AC_PROG_CC
 AM_PROG_AR
 LT_INIT([disable-static])
-AC_CONFIG_FILES([
-env
-Makefile
-guile-wayland.pc
-wayland-scanner-guile
-wayland/config.scm
-])
+AC_CONFIG_FILES([Makefile guile-wayland.pc wayland/config.scm])
+AC_CONFIG_FILES([env], [chmod +x env])
+AC_CONFIG_FILES([wayland-scanner-guile], [chmod +x wayland-scanner-guile])
 AC_OUTPUT

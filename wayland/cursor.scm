@@ -2,7 +2,8 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(load-extension "libguile-wayland" "scm_init_wayland")
+(eval-when (expand load eval)
+  (load-extension "libguile-wayland" "scm_init_wayland_client"))
 
 (define-module (wayland cursor)
   #:use-module (oop goops)
@@ -10,8 +11,9 @@
   #:use-module (wayland client protocol)
       #:export (get-cursor get-buffer width height hotspot-x hotspot-y
                 images name frame-and-duration)
-   #:re-export (<wl-cursor-theme> <wl-cursor> <wl-cursor-image> destroy)
-   #:re-export-and-replace (initialize delay))
+   #:re-export (<wl-cursor-theme> <wl-cursor> <wl-cursor-image>
+                initialize delay destroy)
+  #:duplicates (merge-generics))
 
 (define-method (initialize (theme <wl-cursor-theme>) args)
   (let ((other (apply wl-cursor-theme-load args)))

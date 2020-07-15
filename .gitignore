@@ -4,6 +4,7 @@
 *.go
 *.x
 *.pc
+env
 config.scm
 wayland-scanner-guile
 wayland/client/protocol.scm

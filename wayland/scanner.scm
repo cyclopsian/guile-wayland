@@ -5,7 +5,7 @@
 (define-module (wayland scanner)
   #:use-module (ice-9 getopt-long)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 format-pretty f)
+  #:use-module (ice-9 pretty-print)
   #:use-module (ice-9 string-fun)
   #:use-module (oop goops)
   #:use-module (srfi srfi-1)
@@ -94,7 +94,8 @@
                    (since (,since #f)) (summary (,summary #f))) . ,children)
          (let ((entry (make <wl-entry> #:name name #:value value
                             #:since since #:summary summary)))
-           (get-description entry children))))))
+           (get-description entry children)
+           entry)))))
 
   (define (get-description obj children)
     (sxml-match-children
@@ -107,7 +108,7 @@
     (if version (string->number version) #f))
 
   (sxml-match
-    (caddr (xml->sxml #:trim-whitespace? #t))
+    (last (xml->sxml #:trim-whitespace? #t))
     ((protocol (@ (name ,proto-name)) . ,proto-children)
      (define protocol (make <wl-protocol> #:name proto-name))
      (get-description protocol proto-children)
@@ -158,32 +159,21 @@
                               (list enum)))))))
      protocol)))
 
-(define* (format-text text #:key (prefix ""))
-  ((compose
-     (cut string-join <> "\n")
-     (cut map (cut string-append prefix <>) <>)
-     reverse
-     (cut drop-while string-null? <>)
-     reverse
-     (cut drop-while string-null? <>)
-     (cut map string-trim <>)
-     (cut string-split <> #\format-newline f))
-   text))
-
-(define* (format-docstring event #:key (prefix ""))
-  (string-join
-    (filter
-      (negate string-null?)
-      (list
-        (if (slot-bound? event 'summary) (slot-ref event 'summary) "")
-        (if (slot-bound? event 'description)
-            (format-text (slot-ref event 'description) #:prefix prefix) "")))
-    "\n\n"))
+;;; <scheme-formatter>
+;;; Formats code as sexps
 
 (define-class <scheme-formatter> ()
               (expressions  #:init-value '())
               (exports      #:init-value '())
-              (generics     #:init-value '(add-listener destroy)))
+              (generics     #:init-value '()))
+
+(define-method (add-export (f <scheme-formatter>) name)
+  (slot-set! f 'exports (cons name (slot-ref f 'exports))))
+
+(define-method (add-generic (f <scheme-formatter>) name)
+  (slot-set! f 'generics (lset-adjoin eq? (slot-ref f 'generics) name)))
+
+(define-method (format-text (f <scheme-formatter>) text prefix))
 
 (define-method (format-pretty (f <scheme-formatter>) expr)
   (slot-set! f 'expressions (cons expr (slot-ref f 'expressions))))
@@ -197,124 +187,58 @@
          (format-symbol f (string-concatenate
                             (map (cut format #f "~a" <>) rest))))
 
-(define-method (format-args (f <scheme-formatter>) event call)
-  (fold-right
-    (λ (arg acc)
-      (match (slot-ref arg 'type)
-             ("new_id"
-              (if (slot-ref arg 'interface)
-                  (if call (cons #f acc) acc)
-                  (append (list
-                            (if call
-                                '(wl-interface-name interface)
-                                'interface) 'version) acc)))
-             (else
-               (cons (format-symbol f (slot-ref arg 'name)) acc))))
-    '() (slot-ref event 'args)))
-
-(define-method (format-func-name
-                 (f <scheme-formatter>)
-                 interface
-                 (request <wl-request>))
-  (format-symbol f (format #f "~a_~a"
-                           (slot-ref interface 'name)
-                           (slot-ref request 'name))))
-
-(define-method (format-func-name
-                 (f <scheme-formatter>)
-                 interface
-                 (event <wl-event>))
-  (format-symbol f (format #f "~a_send_~a"
-                           (slot-ref interface 'name)
-                           (slot-ref event 'name))))
-
-(define-method (format-stub (f <scheme-formatter>) interface request index)
-  (let* ((int-name (format-symbol f (slot-ref interface 'name)))
-         (req-name (format-symbol f (slot-ref request 'name)))
-         (name (format-func-name f interface request))
-         (ret (find (compose (cut equal? <> "new_id") (cut slot-ref <> 'type))
-                    (slot-ref request 'args)))
-         (marshal-func
-           (if ret
-               (if (slot-ref ret 'interface)
-                   'wl-proxy-marshal-constructor
-                   'wl-proxy-marshal-constructor-versioned)
-               'wl-proxy-marshal)))
-    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
-    (slot-set! f 'generics (lset-adjoin eq? (slot-ref f 'generics) req-name))
-    ; TODO - interface should be interface->name in function call
-    (format #t "(define ~a\n  \"~a\"\n  ~a)\n"
-            (append (list name int-name) (format-args f request #f))
-            (escape-special-chars (format-docstring request) "\"\\" #\\)
-            (append `(,marshal-func ,int-name ,index)
-                    (if ret
-                        (let ((ret-int (slot-ref ret 'interface)))
-                          (if ret-int
-                            (list (format-interface-name f ret-int))
-                            '(interface version)))
-                        '())
-                    (format-args f request #t)))))
-
-(define-method (format-protocol-header
-                 (f <scheme-formatter>) type protocol module-prefix extra-deps)
-  (if (slot-bound? protocol 'copyright)
-      (format #t "~a\n\n"
-              (format-text (slot-ref protocol 'copyright) #:prefix ";;; ")))
-
-  (format-pretty f
-    '(load-extension "libguile-wayland" "scm_init_wayland"))
-
-  (format-newline f)
-
-  (let* ((proto-name (slot-ref protocol 'name))
-         (core-proto? (equal? proto-name "wayland"))
-         (mod-name (format-symbol
-                     f (if core-proto? "protocol"
-                         (string-append proto-name "-protocol"))))
-         (module-deps `((oop goops)
-                        (wayland ,type core)
-                        ,@(if core-proto? '() `((wayland ,type protocol)))
-                        ,@extra-deps)))
-    (if module-prefix
-      (format-pretty f `(define-module
-                       (,@module-prefix ,mod-name)
-                       ,@(fold-right
-                           (λ (m acc) (append (list '#:use-module m) acc))
-                           '() module-deps)))
-      (format-pretty f `(use-modules ,@module-deps))))
-
-  (format-newline f)
-  (for-each
-    (λ (generic)
-       (format-pretty f `(define-generic ,generic)))
-    (slot-ref f 'generics))
-  (format-newline f))
-
-(define-method (format-add-listener (f <scheme-formatter>) interface)
-  (let* ((int-name (format-symbol f (slot-ref interface 'name)))
-         (name (format-symbol-append f int-name "_add_listener"))
-         (events (map (compose (cut format-symbol f <>)
-                               (cut slot-ref <> 'name))
-                      (slot-ref interface 'events))))
-    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
-    (format-pretty f
-      `(define* (,name ,int-name #:key ,@events)
-                (wl-proxy-add-listener ,int-name ,@events)))))
-
-(define-method (format-destructor (f <scheme-formatter>) interface)
-  (let* ((int-name (format-symbol f (slot-ref interface 'name)))
-         (name (format-symbol-append f int-name "_destroy"))
-         (destructor (list-index
-                       (λ (req) (equal? (slot-ref req 'type) "destructor"))
-                       (slot-ref interface 'requests))))
-    ;(slot-set! f 'exports (cons name (slot-ref f 'exports)))
-    (format-pretty f
-      `(define (,name ,int-name)
-        ,@(if destructor `((wl-proxy-marshal ,int-name ,destructor)) '())
-        (wl-proxy-destroy ,int-name)))))
-
 (define-method (format-interface-name (f <scheme-formatter>) interface-name)
   (format-symbol-append f interface-name "_interface"))
+
+(define-method (format-class-name (f <scheme-formatter>) name)
+  (format-symbol-append f "<" name ">"))
+
+(define-method (format-enum-entry (f <scheme-formatter>) interface enum entry)
+  ((compose string->symbol string-upcase string-join)
+   (map (cut slot-ref <> 'name) (list interface enum entry)) "_"))
+
+(define-method (flush (f <scheme-formatter>))
+  (let ((exprs (slot-ref f 'expressions)))
+    (slot-set! f 'expressions '())
+    exprs))
+
+;;; <scheme-text-formatter>
+;;; Formats code as a string to an output port
+
+(define-class <scheme-text-formatter> (<scheme-formatter>) port)
+
+(define-method (initialize (f <scheme-text-formatter>) args)
+  (slot-set! f 'port (match args ((#f)   (open-output-string))
+                                 ((port) port)))
+  (next-method f '()))
+
+(define-method (format-text (f <scheme-text-formatter>) text prefix)
+  (display
+    ((compose
+       (cut string-join <> "\n")
+       (cut map (cut string-append prefix <>) <>)
+       reverse
+       (cut drop-while string-null? <>)
+       reverse
+       (cut drop-while string-null? <>)
+       (cut map string-trim <>)
+       (cut string-split <> #\newline))
+     text)
+    (slot-ref f 'port)))
+
+(define-method (format-pretty (f <scheme-text-formatter>) expr)
+  (pretty-print expr (slot-ref f 'port) #:max-expr-width 79))
+
+(define-method (format-newline (f <scheme-text-formatter>))
+  (newline (slot-ref f 'port)))
+
+(define-method (flush (f <scheme-text-formatter>))
+  (let* ((port (slot-ref f 'port))
+         (str (get-output-string port)))
+    (close-port port)
+    str))
+
+;;; Interface and method formatters
 
 (define-method (format-messages (f <scheme-formatter>) events)
   (map
@@ -352,78 +276,163 @@
                 '() (slot-ref event 'args)))))
     events))
 
-(define-method (format-protocol-footer (f <scheme-formatter>) protocol)
+(define-method (format-protocol-header
+                 (f <scheme-formatter>) type protocol module-prefix extra-deps)
+  (when (slot-bound? protocol 'copyright)
+    (format-text f (slot-ref protocol 'copyright) ";;; ")
+    (format-newline f)
+    (format-newline f))
+
+  (format-pretty f
+    `(eval-when (expand load eval)
+      (load-extension "libguile-wayland"
+                       ,(string-append
+                          "scm_init_wayland_" (symbol->string type)))))
+
+  (format-newline f)
+
+  (let* ((proto-name (slot-ref protocol 'name))
+         (core-proto? (equal? proto-name "wayland"))
+         (mod-name (format-symbol f (if core-proto? "protocol" proto-name)))
+         (module-deps `((oop goops)
+                        (wayland ,type core)
+                        ,@(if core-proto? '() `((wayland ,type protocol)))
+                        ,@extra-deps)))
+    (if module-prefix
+      (format-pretty f `(define-module
+                       (,@module-prefix ,mod-name)
+                       ,@(fold-right
+                           (λ (m acc) (append (list '#:use-module m) acc))
+                           '() module-deps)
+                       #:export (,@(reverse (slot-ref f 'exports))
+                                 ,@(reverse (slot-ref f 'generics)))
+                       #:re-export (initialize)))
+      (format-pretty f `(use-modules ,@module-deps))))
+
+  (format-newline f)
+
+  (for-each
+    (λ (generic)
+       (format-pretty f `(define-generic ,generic)))
+    (slot-ref f 'generics))
+  (format-newline f)
+
   (for-each
     (λ (interface)
-       (let* ((name (format-symbol f (slot-ref interface 'name)))
-              (int-name (format-interface-name f (slot-ref interface 'name)))
-              (class-name (format-symbol-append f "<" name ">")))
-         (slot-set! f 'exports (cons class-name (slot-ref f 'exports)))
-         (format-pretty f `(define-class ,class-name (<wl-proxy>)))
-         (format-pretty f
-           `(define-method
-              (initialize (,name ,class-name) args)
-              (let ((proxy (car args)))
-                (wl-proxy-assert-type proxy ,int-name)
-                (wl-proxy-move proxy ,name))))
-         (format-newline f)
-
-         (for-each
-           (λ (request)
-              (unless (equal? (slot-ref request 'type) "destructor")
-                (let ((req-name (format-symbol f (slot-ref request 'name)))
-                      (func-name (format-func-name f interface request))
-                      (args (format-args f request #f)))
-                  (format-pretty f
-                    `(define-method
-                       (,req-name (,name ,class-name) ,@args)
-                       (,func-name ,name ,@args)))
-                  (format-newline f))))
-           (slot-ref interface 'requests))
-
-         (unless (null? (slot-ref interface 'events))
-           (format-pretty f
-             `(define-method
-                (add-listener (,name ,class-name) . args)
-                (apply ,(format-symbol-append f name "_add_listener")
-                       ,name args)))
-           (format-newline f))
-
-         (unless (equal? (slot-ref interface 'name) "wl_display")
-           (format-pretty f
-             `(define-method
-                (destroy (,name ,class-name))
-                (,(format-symbol-append f name "_destroy") ,name))))
-         (format-newline f)
-
-         (format-newline f)))
+      (let ((int-name (format-interface-name f (slot-ref interface 'name))))
+        (format-pretty f `(define ,int-name (make-wl-interface)))))
     (slot-ref protocol 'interfaces))
+  (format-newline f))
 
-  (format-pretty f `(export ,@(reverse (slot-ref f 'exports))
-                         ,@(slot-ref f 'generics))))
+(define-method (format-interface-header (f <scheme-formatter>) interface)
+  (let* ((name (format-symbol f (slot-ref interface 'name)))
+         (int-name (format-interface-name f (slot-ref interface 'name)))
+         (class-name (format-symbol-append f "<" name ">")))
+    (format-pretty f
+      `(wl-interface-set ,int-name
+                         ,(slot-ref interface 'name)
+                         ,(slot-ref interface 'version)
+                         ,(cons 'list (format-messages
+                                        f (slot-ref interface 'requests)))
+                         ,(cons 'list (format-messages
+                                        f (slot-ref interface 'events)))))
+    (format-newline f)
+    (format-pretty f `(define-class ,class-name (<wl-proxy>)
+                                    #:metaclass <wl-proxy-class>))
+    (format-pretty f `(slot-set! ,class-name 'interface ,int-name))
+    (format-newline f)
+    (format-pretty f
+      `(define-method
+         (initialize (,name ,class-name) args)
+         (apply (lambda (proxy)
+                  (wl-proxy-assert-type proxy ,int-name)
+                  (wl-proxy-move proxy ,name))
+                args)))
+    (format-newline f)))
 
-(define-method (flush (f <scheme-formatter>))
-  (let ((exprs (slot-ref f 'expressions)))
-    (slot-set! f 'expressions '())
-    exprs))
+(define-method (format-enum (f <scheme-formatter>) interface enum)
+  (for-each
+    (λ (entry)
+      (let* ((name (format-enum-entry f interface enum entry))
+             (value-str (slot-ref entry 'value))
+             (value (string->number
+                      (if (string-prefix-ci? "0x" value-str)
+                          (string-append "#" (substring/shared value-str 1))
+                          value-str))))
+        (format-pretty f `(define ,name ,value))))
+    (slot-ref enum 'entries))
+  (format-newline f))
 
-(define-class <scheme-text-formatter> (<scheme-formatter>) port)
+(define-method (format-args (f <scheme-formatter>) event call)
+  (fold-right
+    (λ (arg acc)
+      (match (slot-ref arg 'type)
+             ("new_id"
+              (if (slot-ref arg 'interface)
+                  (if call (cons #f acc) acc)
+                  (append (list
+                            (if call
+                                '(wl-interface-name interface)
+                                'interface)
+                            'version) acc)))
+             (else
+               (cons (format-symbol f (slot-ref arg 'name)) acc))))
+    '() (slot-ref event 'args)))
 
-(define-method (initialize (f <scheme-text-formatter>) args)
-  (slot-set! f 'port (match args ((#f)   (open-output-string))
-                                 ((port) port))))
+(define-method (format-stub (f <scheme-formatter>) interface request index)
+  (let* ((int-name (format-symbol f (slot-ref interface 'name)))
+         (req-name (format-symbol f (slot-ref request 'name)))
+         (class-name (format-class-name f int-name))
+         (ret (find (λ (p) (equal? (slot-ref p 'type) "new_id"))
+                    (slot-ref request 'args)))
+         (ret-int (and ret (slot-ref ret 'interface)))
+         (marshal-func
+           (if ret
+               (if ret-int
+                   'wl-proxy-marshal-constructor
+                   'wl-proxy-marshal-constructor-versioned)
+               'wl-proxy-marshal))
+         (ret-args
+           (if ret
+               (if ret-int
+                   (list (format-interface-name f ret-int))
+                   '(interface version))
+               '()))
+         (func-call `(,marshal-func ,int-name ,index ,@ret-args
+                                    ,@(format-args f request #t))))
+    (format-pretty f
+      `(define-method
+         (,req-name (,int-name ,class-name) ,@(format-args f request #f))
+         ,(if ret
+              (if ret-int
+                  `(make ,(format-class-name f ret-int) ,func-call)
+                  `(make interface ,func-call))
+              func-call)))))
 
-(define-method (format-pretty (f <scheme-text-formatter>) expr)
-  (pretty-print expr (slot-ref f 'port) #:max-expr-width 79))
+(define-method (format-add-listener (f <scheme-formatter>) interface)
+  (let* ((name (format-symbol f (slot-ref interface 'name)))
+         (class-name (format-class-name f name))
+         (events (map (λ (e) (format-symbol f (slot-ref e 'name)))
+                      (slot-ref interface 'events))))
+    (format-pretty f
+      `(define-method
+         (add-listener (,name ,class-name) . args)
+         (apply
+           (lambda* (#:key ,@events)
+                    (wl-proxy-add-listener ,name ,@events))
+           args)))))
 
-(define-method (format-newline (f <scheme-text-formatter>))
-  (newline (slot-ref f 'port)))
-
-(define-method (flush (f <scheme-text-formatter>))
-  (let* ((port (slot-ref f 'port))
-         (str (get-output-string port)))
-    (close-port port)
-    str))
+(define-method (format-destructor (f <scheme-formatter>) interface)
+  (let* ((name (format-symbol f (slot-ref interface 'name)))
+         (class-name (format-class-name f name))
+         (destructor (list-index
+                       (λ (req) (equal? (slot-ref req 'type) "destructor"))
+                       (slot-ref interface 'requests))))
+    (format-pretty f
+      `(define-method
+         (destroy (,name ,class-name))
+         ,@(if destructor `((wl-proxy-marshal ,name ,destructor)) '())
+         (wl-proxy-destroy ,name)))))
 
 (define* (wl-scanner #:key (type 'client)
                            output-port
@@ -431,7 +440,32 @@
                            (extra-deps '())
                            module-prefix
                            output-text?)
-  (unless (member type '("client" "server"))
+  "Takes a wayland XML file from @var{input-port} and outputs Scheme code
+to @var{output-port}. If @var{input-port} is omitted, it defaults to the
+current input port. If @var{output-port} is omitted or set to @code{#f},
+returns the code as a list of S-expressions. If @var{output-port} is set to
+@code{#t}, it defaults to the current output port.
+
+@var{output-text?} can be set to @code{#t} to output a string instead,
+formatted with comments. This should be used when writing directly to a
+file.
+
+@var{type} specifies the type of code to output, and can be set to either
+@code{'client} or @code{'server}.
+
+@var{module-prefix} specifies a list of symbols representing a prefix to use
+when defining the module.  If given, a @code{define-module} statement will be
+placed at the top of the file using the prefix. For example, a prefix of
+@lisp{'(myapp protocols)} when used with the @code{xdg-shell} protocol will
+result in a statement like: @lisp{(define-module (myapp protocols xdg-shell))}.
+If omitted, no module will be defined.
+
+@var{extra-deps} gives a list of additional Guile modules to use at the top
+of the file. This is useful if your protocol depends on other custom protocols.
+If a module was defined with @var{module-prefix}, these will be included as
+@code{#:use-module} keywords. Otherwise, they will appear at the top of the
+file in a call to @code{use-module}."
+  (unless (member type '(client server))
     (error "type must be one of [client|server]"))
   (when (eq? output-port #t)
     (set! output-port (current-output-port)))
@@ -441,63 +475,68 @@
   (define f (if output-text?
                 (make <scheme-text-formatter> output-port)
                 (make <scheme-formatter>)))
-  (define protocol (with-input-from-port port read-protocol))
+  (define protocol (with-input-from-port input-port read-protocol))
+
+  (for-each
+    (λ (interface)
+      (add-export f (format-interface-name f (slot-ref interface 'name)))
+      (add-export f (format-class-name f (slot-ref interface 'name)))
+      (for-each
+        (λ (enum)
+          (for-each
+            (λ (entry)
+              (add-export f (format-enum-entry f interface enum entry)))
+            (slot-ref enum 'entries)))
+        (slot-ref interface 'enums))
+      (for-each
+        (λ (request)
+           (unless (equal? (slot-ref request 'type) "destructor")
+             (add-generic f (format-symbol f (slot-ref request 'name)))))
+        (slot-ref interface 'requests))
+      (unless (null? (slot-ref interface 'events))
+        (add-generic f 'add-listener))
+      (unless (equal? (slot-ref interface 'name) "wl_display")
+        (add-generic f 'destroy)))
+    (slot-ref protocol 'interfaces))
 
   (format-protocol-header f type protocol module-prefix extra-deps)
-  (format-newline f) (format-newline f)
-
-  (for-each
-    (λ (interface)
-      (let ((name (format-interface-name f (slot-ref interface 'name))))
-        (slot-set! f 'exports (cons name (slot-ref f 'exports)))
-        (format-pretty f `(define ,name (make-wl-interface)))))
-    (slot-ref protocol 'interfaces))
   (format-newline f)
-  (for-each
-    (λ (interface)
-      (let ((name (format-interface-name f (slot-ref interface 'name))))
-        (format-pretty f
-          `(wl-interface-set ,name
-                             ,(slot-ref interface 'name)
-                             ,(slot-ref interface 'version)
-                             ,(cons 'list (format-messages
-                                            f (slot-ref interface 'requests)))
-                             ,(cons 'list (format-messages
-                                            f (slot-ref interface 'events)))))
-        (format-newline f)))
-    (slot-ref protocol 'interfaces))
 
   (for-each
     (λ (interface)
-      (fold
-        (λ (request index)
-           (unless (equal? (slot-ref request 'type) "destructor")
-             (format-stub f interface request index)
-             (format-newline f))
-           (1+ index))
-        0 (slot-ref interface 'requests))
-      (format-newline f)
+       (format-interface-header f interface)
+       (for-each
+         (λ (enum)
+           (format-enum f interface enum))
+         (slot-ref interface 'enums))
+       (fold
+         (λ (request index)
+            (unless (equal? (slot-ref request 'type) "destructor")
+              (format-stub f interface request index)
+              (format-newline f))
+            (1+ index))
+         0 (slot-ref interface 'requests))
 
-      (unless (null? (slot-ref interface 'events))
-        (format-add-listener f interface)
-        (format-newline f))
+       (unless (null? (slot-ref interface 'events))
+         (format-add-listener f interface)
+         (format-newline f))
 
-      (unless (equal? (slot-ref interface 'name) "wl_display")
-        (format-destructor f interface)
-        (format-newline f))
+       (unless (equal? (slot-ref interface 'name) "wl_display")
+         (format-destructor f interface)
+         (format-newline f))
 
-      (format-newline f))
+       (format-newline f))
     (slot-ref protocol 'interfaces))
-  (format-protocol-footer f protocol)
+
   (unless output-port (flush f)))
 
-(define* (wl-scanner-load file . args)
+(define* (wl-scanner-load filename #:key (type 'client) (extra-deps '()))
+  "Loads a protocol from @var{filename} and evaluates all its definitions in
+the current module. @var{type} and @code{extra-deps} are handled the same as
+in @code{wl-scanner}."
   (eval
-    `(begin ,@(with-input-from-file file
-                (cut apply wl-scanner (append args '(#:input-port #f
-                                                     #:output-port #f
-                                                     #:output-text? #f
-                                                     #:module-prefix #f)))))
+    `(begin ,@(with-input-from-file filename
+                (wl-scanner #:type type #:extra-deps extra-deps)))
     (current-module)))
 
 (define usage-text "\
@@ -551,15 +590,21 @@ Supported options:
                    type)
            (format (current-error-port) "Usage: ~a ~a" (car args) usage-text)
            (quit 1))
-         (wl-scanner
-           #:type          (string->symbol type)
-           #:output-port   outport
-           #:input-port    inport
-           #:output-text?  #t
-           #:extra-deps    (read-string-vals extra-deps)
-           #:module-prefix (and=> module-prefix
-                             (compose (cut map string->symbol <>)
-                                      (cut string-split <> #\space))))))
+         (catch #t
+           (λ ()
+              (wl-scanner
+                #:type          (string->symbol type)
+                #:output-port   outport
+                #:input-port    inport
+                #:output-text?  #t
+                #:extra-deps    (read-string-vals extra-deps)
+                #:module-prefix (and=> module-prefix
+                                       (λ (p) (map string->symbol
+                                                   (string-split p #\space))))))
+           (λ (key . args)
+              (when (file-port? outport)
+                (catch #t (λ () (delete-file (port-filename outport))) noop))
+              (apply throw key args)))))
       (_
         (format (current-error-port) "Usage: ~a ~a" (car args) usage-text)
         (quit 1)))))
