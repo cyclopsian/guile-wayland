@@ -25,7 +25,8 @@ libguile_wayland_client_la_includedir = $(includedir)/guile-wayland-client
 libguile_wayland_client_la_include_HEADERS = \
 	guile-wayland/guile-wayland-client.h \
 	guile-wayland/guile-wayland-cursor.h \
-	guile-wayland/guile-wayland-egl.h
+	guile-wayland/guile-wayland-egl.h \
+	guile-wayland/guile-wayland-util.h
 libguile_wayland_client_la_CFLAGS = \
 	$(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) \
 	$(AM_CFLAGS) $(GUILE_CFLAGS)

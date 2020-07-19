@@ -5,8 +5,6 @@ AC_INIT([guile-wayland], [1.0], [jason@cycles.network])
 AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
 AC_CONFIG_MACRO_DIRS([m4])
 AM_SILENT_RULES([yes])
-AX_CHECK_COMPILE_FLAG([-std=c11], [AX_APPEND_FLAG([-std=c11], [CFLAGS])],
-  [AC_MSG_FAILURE([Compiler does not support -std=c11])])
 
 PKG_INSTALLDIR
 

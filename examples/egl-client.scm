@@ -57,7 +57,7 @@
      (ctx-attribs    '(EGL_CONTEXT_CLIENT_VERSION 2))
      ((config) (begin
                  (egl-initialize egl-display)
-                 (egl-choose-config egl-display attribs 1)))
+                 (egl-choose-config egl-display config-attribs 1)))
      (context (egl-create-context egl-display config ctx-attribs))
      (surface (create-surface compositor))
      (xdg-surface (get-xdg-surface xdg-wm-base surface))

@@ -19,37 +19,37 @@
 
 (define-class <wl-def-object> () description summary)
 (define-class <wl-protocol> (<wl-def-object>)
-              (name #:init-keyword #:name)
-              copyright
-              (interfaces #:init-value '()))
+  (name #:init-keyword #:name)
+  copyright
+  (interfaces #:init-value '()))
 (define-class <wl-interface> (<wl-def-object>)
-              (name     #:init-keyword #:name)
-              (version  #:init-keyword #:version)
-              (requests #:init-value '())
-              (events   #:init-value '())
-              (enums    #:init-value '()))
+  (name     #:init-keyword #:name)
+  (version  #:init-keyword #:version)
+  (requests #:init-value '())
+  (events   #:init-value '())
+  (enums    #:init-value '()))
 (define-class <wl-event> (<wl-def-object>)
-              (name  #:init-keyword #:name)
-              (since #:init-keyword #:since)
-              (args  #:init-keyword #:args #:init-value '()))
+  (name  #:init-keyword #:name)
+  (since #:init-keyword #:since)
+  (args  #:init-keyword #:args #:init-value '()))
 (define-class <wl-request> (<wl-event>)
-              (type  #:init-keyword #:type))
+  (type  #:init-keyword #:type))
 (define-class <wl-arg> ()
-              (name       #:init-keyword #:name)
-              (type       #:init-keyword #:type)
-              (summary    #:init-keyword #:summary)
-              (interface  #:init-keyword #:interface)
-              (allow-null #:init-keyword #:allow-null)
-              (enum       #:init-keyword #:enum))
+  (name       #:init-keyword #:name)
+  (type       #:init-keyword #:type)
+  (summary    #:init-keyword #:summary)
+  (interface  #:init-keyword #:interface)
+  (allow-null #:init-keyword #:allow-null)
+  (enum       #:init-keyword #:enum))
 (define-class <wl-enum> (<wl-def-object>)
-              (name     #:init-keyword #:name)
-              (since    #:init-keyword #:since)
-              (bitfield #:init-keyword #:bitfield)
-              (entries  #:init-keyword #:entries #:init-value '()))
+  (name     #:init-keyword #:name)
+  (since    #:init-keyword #:since)
+  (bitfield #:init-keyword #:bitfield)
+  (entries  #:init-keyword #:entries #:init-value '()))
 (define-class <wl-entry> (<wl-def-object>)
-              (name    #:init-keyword #:name)
-              (value   #:init-keyword #:value)
-              (since   #:init-keyword #:since))
+  (name    #:init-keyword #:name)
+  (value   #:init-keyword #:value)
+  (since   #:init-keyword #:since))
 
 (define-syntax sxml-match-children-internal
   (syntax-rules ()
@@ -190,8 +190,11 @@
 (define-method (format-interface-name (f <scheme-formatter>) interface-name)
   (format-symbol-append f interface-name "_interface"))
 
-(define-method (format-class-name (f <scheme-formatter>) name)
-  (format-symbol-append f "<" name ">"))
+(define-method (format-class-name (f <scheme-formatter>) name type)
+  (let ((n (match type ('client name)
+                       ('server (string-append (format #f "~a" name)
+                                               "-resource")))))
+    (format-symbol-append f "<" n ">")))
 
 (define-method (format-enum-entry (f <scheme-formatter>) interface enum entry)
   ((compose string->symbol string-upcase string-join)
@@ -325,10 +328,10 @@
     (slot-ref protocol 'interfaces))
   (format-newline f))
 
-(define-method (format-interface-header (f <scheme-formatter>) interface)
+(define-method (format-interface-header (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
          (int-name (format-interface-name f (slot-ref interface 'name)))
-         (class-name (format-symbol-append f "<" name ">")))
+         (class-name (format-class-name f name type)))
     (format-pretty f
       `(wl-interface-set ,int-name
                          ,(slot-ref interface 'name)
@@ -338,17 +341,31 @@
                          ,(cons 'list (format-messages
                                         f (slot-ref interface 'events)))))
     (format-newline f)
-    (format-pretty f `(define-class ,class-name (<wl-proxy>)
-                                    #:metaclass <wl-proxy-class>))
+    (match type
+      ('client
+       (format-pretty f `(define-class ,class-name (<wl-proxy>)
+                                       #:metaclass <wl-proxy-class>)))
+      ('server
+       (format-pretty f `(define-class ,class-name (<wl-resource>)
+                                       #:metaclass <wl-resource-class>))))
     (format-pretty f `(slot-set! ,class-name 'interface ,int-name))
     (format-newline f)
-    (format-pretty f
-      `(define-method
-         (initialize (,name ,class-name) args)
-         (apply (lambda (proxy)
-                  (wl-proxy-assert-type proxy ,int-name)
-                  (wl-proxy-move proxy ,name))
-                args)))
+    (match type
+      ('client
+       (format-pretty f
+         `(define-method
+            (initialize (,name ,class-name) args)
+            (apply (lambda (proxy)
+                     (wl-proxy-move proxy ,name))
+                   args))))
+      ('server
+       (format-pretty f
+         `(define-method
+            (initialize (,name ,class-name) args)
+            (apply (lambda* (client version #:optional (id 0))
+                     (wl-resource-create ,name client ,int-name version id))
+                   args)))))
+
     (format-newline f)))
 
 (define-method (format-enum (f <scheme-formatter>) interface enum)
@@ -380,52 +397,68 @@
                (cons (format-symbol f (slot-ref arg 'name)) acc))))
     '() (slot-ref event 'args)))
 
-(define-method (format-stub (f <scheme-formatter>) interface request index)
-  (let* ((int-name (format-symbol f (slot-ref interface 'name)))
-         (req-name (format-symbol f (slot-ref request 'name)))
-         (class-name (format-class-name f int-name))
+(define-method (format-stub (f <scheme-formatter>) interface event index)
+  (let* ((name (format-symbol f (slot-ref interface 'name)))
+         (int-name (format-interface-name f (slot-ref interface 'name)))
+         (type (if (is-a? event <wl-request>) 'client 'server))
+         (event-name (format-symbol-append f (match type
+                                               ('client "")
+                                               ('server "send-"))
+                                           (slot-ref event 'name)))
+         (class-name (format-class-name f name type))
          (ret (find (λ (p) (equal? (slot-ref p 'type) "new_id"))
-                    (slot-ref request 'args)))
+                    (slot-ref event 'args)))
          (ret-int (and ret (slot-ref ret 'interface)))
-         (marshal-func
-           (if ret
-               (if ret-int
-                   'wl-proxy-marshal-constructor
-                   'wl-proxy-marshal-constructor-versioned)
-               'wl-proxy-marshal))
+         (send-func
+           (if (is-a? event <wl-request>)
+               (if ret
+                   (if ret-int
+                       'wl-proxy-marshal-constructor
+                       'wl-proxy-marshal-constructor-versioned)
+                   'wl-proxy-marshal)
+               'wl-resource-post-event))
          (ret-args
            (if ret
                (if ret-int
                    (list (format-interface-name f ret-int))
                    '(interface version))
                '()))
-         (func-call `(,marshal-func ,int-name ,index ,@ret-args
-                                    ,@(format-args f request #t))))
+         (func-call `(,send-func ,name ,int-name ,index ,@ret-args
+                                 ,@(format-args f event #t))))
     (format-pretty f
       `(define-method
-         (,req-name (,int-name ,class-name) ,@(format-args f request #f))
+         (,event-name (,name ,class-name) ,@(format-args f event #f))
          ,(if ret
               (if ret-int
-                  `(make ,(format-class-name f ret-int) ,func-call)
+                  `(make ,(format-class-name f ret-int type) ,func-call)
                   `(make interface ,func-call))
               func-call)))))
 
-(define-method (format-add-listener (f <scheme-formatter>) interface)
+(define-method (format-dispatcher (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
-         (class-name (format-class-name f name))
+         (int-name (format-interface-name f (slot-ref interface 'name)))
+         (class-name (format-class-name f name type))
          (events (map (λ (e) (format-symbol f (slot-ref e 'name)))
-                      (slot-ref interface 'events))))
+                      (slot-ref interface (match type
+                                            ('client 'events)
+                                            ('server 'requests))))))
+    (when (equal? type 'server)
+      (append! events '(destructor)))
+
     (format-pretty f
       `(define-method
-         (add-listener (,name ,class-name) . args)
+         (,(match type ('client 'add-listener) ('server 'set-implementation))
+           (,name ,class-name) . args)
          (apply
            (lambda* (#:key ,@events)
-                    (wl-proxy-add-listener ,name ,@events))
+             (,(match type ('client 'wl-proxy-add-listener)
+                           ('server 'wl-resource-set-implementation))
+               ,name ,int-name ,@events))
            args)))))
 
-(define-method (format-destructor (f <scheme-formatter>) interface)
+(define-method (format-destructor (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
-         (class-name (format-class-name f name))
+         (class-name (format-class-name f name type))
          (destructor (list-index
                        (λ (req) (equal? (slot-ref req 'type) "destructor"))
                        (slot-ref interface 'requests))))
@@ -481,7 +514,7 @@ file in a call to @code{use-module}."
   (for-each
     (λ (interface)
       (add-export f (format-interface-name f (slot-ref interface 'name)))
-      (add-export f (format-class-name f (slot-ref interface 'name)))
+      (add-export f (format-class-name f (slot-ref interface 'name) type))
       (for-each
         (λ (enum)
           (for-each
@@ -489,14 +522,26 @@ file in a call to @code{use-module}."
               (add-export f (format-enum-entry f interface enum entry)))
             (slot-ref enum 'entries)))
         (slot-ref interface 'enums))
-      (for-each
-        (λ (request)
-           (unless (equal? (slot-ref request 'type) "destructor")
-             (add-generic f (format-symbol f (slot-ref request 'name)))))
-        (slot-ref interface 'requests))
-      (unless (null? (slot-ref interface 'events))
-        (add-generic f 'add-listener))
-      (unless (equal? (slot-ref interface 'name) "wl_display")
+      (match type
+        ('client
+         (for-each
+           (λ (request)
+             (unless (equal? (slot-ref request 'type) "destructor")
+               (add-generic f (format-symbol f (slot-ref request 'name)))))
+           (slot-ref interface 'requests)))
+        ('server
+         (for-each
+           (λ (event)
+             (add-generic f (format-symbol-append f "send-"
+                                                  (slot-ref event 'name))))
+           (slot-ref interface 'events))))
+      (match type
+        ('client (unless (null? (slot-ref interface 'events))
+                   (add-generic f 'add-listener)))
+        ('server (unless (null? (slot-ref interface 'requests))
+                   (add-generic f 'set-implementation))))
+      (when (and (equal? type 'client)
+                 (not (equal? (slot-ref interface 'name) "wl_display")))
         (add-generic f 'destroy)))
     (slot-ref protocol 'interfaces))
 
@@ -505,25 +550,37 @@ file in a call to @code{use-module}."
 
   (for-each
     (λ (interface)
-       (format-interface-header f interface)
+       (format-interface-header f interface type)
        (for-each
          (λ (enum)
            (format-enum f interface enum))
          (slot-ref interface 'enums))
-       (fold
-         (λ (request index)
-            (unless (equal? (slot-ref request 'type) "destructor")
-              (format-stub f interface request index)
-              (format-newline f))
-            (1+ index))
-         0 (slot-ref interface 'requests))
 
-       (unless (null? (slot-ref interface 'events))
-         (format-add-listener f interface)
+       (match type
+         ('client
+          (fold
+            (λ (request index)
+              (unless (equal? (slot-ref request 'type) "destructor")
+                (format-stub f interface request index)
+                (format-newline f))
+              (1+ index))
+            0 (slot-ref interface 'requests)))
+         ('server
+          (fold
+            (λ (event index)
+              (format-stub f interface event index)
+              (format-newline f)
+              (1+ index))
+            0 (slot-ref interface 'events))))
+
+       (unless (null? (slot-ref interface (match type ('client 'events)
+                                                      ('server 'requests))))
+         (format-dispatcher f interface type)
          (format-newline f))
 
-       (unless (equal? (slot-ref interface 'name) "wl_display")
-         (format-destructor f interface)
+       (when (and (equal? type 'client)
+                  (not (equal? (slot-ref interface 'name) "wl_display")))
+         (format-destructor f interface type)
          (format-newline f))
 
        (format-newline f))
@@ -535,10 +592,9 @@ file in a call to @code{use-module}."
   "Loads a protocol from @var{filename} and evaluates all its definitions in
 the current module. @var{type} and @code{extra-deps} are handled the same as
 in @code{wl-scanner}."
-  (eval
+  (primitive-eval
     `(begin ,@(with-input-from-file filename
-                (wl-scanner #:type type #:extra-deps extra-deps)))
-    (current-module)))
+                (wl-scanner #:type type #:extra-deps extra-deps)))))
 
 (define usage-text "\
 [OPTIONS] [client|server] [input_file output_file]

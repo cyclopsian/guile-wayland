@@ -5,9 +5,9 @@
 *.go.*
 *.x
 *.pc
-env
-config.scm
+/env
 wayland-scanner-guile
+wayland/config.scm
 wayland/*/protocol.scm
 
 # http://www.gnu.org/software/automake

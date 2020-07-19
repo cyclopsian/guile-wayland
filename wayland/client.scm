@@ -6,7 +6,6 @@
   (load-extension "libguile-wayland-client" "scm_init_wayland_client"))
 
 (define-module (wayland client)
-  #:use-module (ice-9 match)
   #:use-module (oop goops)
   #:use-module (wayland client core)
   #:use-module (wayland client protocol)
@@ -72,12 +71,17 @@
 
 (define-method (initialize (disp <wl-display>) args)
   (wl-proxy-move
-    (match args
-      ((arg)
-        (cond
-          ((is-a? arg <string>) (wl-display-connect arg))
-          ((is-a? arg <integer>) (wl-display-connect-to-fd arg))))
-      (() (wl-display-connect)))
+    (apply
+      (case-lambda
+        ((arg)
+         (cond
+           ((is-a? arg <string>) (wl-display-connect arg))
+           ((is-a? arg <integer>) (wl-display-connect-to-fd arg))
+           (else (scm-error 'wrong-type-arg "wl-display-initialize"
+                            "Expected string, integer or #f: ~a"
+                            (list arg) (list arg)))))
+        (() (wl-display-connect)))
+      args)
     disp))
 
 (define-method (disconnect (disp <wl-display>))

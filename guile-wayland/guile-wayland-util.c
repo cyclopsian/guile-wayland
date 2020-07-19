@@ -1,16 +1,21 @@
 /* SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <libguile.h>
-#include <stdatomic.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #include <wayland-util.h>
 
+#include "guile-wayland-client.h"
+#include "guile-wayland-server.h"
 #include "guile-wayland-util.h"
 
 SCM scm_wl_interface_type;
@@ -64,8 +69,6 @@ SCM_DEFINE_PUBLIC(scm_munmap, "munmap", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static atomic_ulong shm_counter = 0;
-
 #define FUNC_NAME s_scm_create_shm_fdes
 SCM_DEFINE_PUBLIC(scm_create_shm_fdes, "create-shm-fdes", 1, 0, 0,
     (SCM length),
@@ -73,13 +76,12 @@ SCM_DEFINE_PUBLIC(scm_create_shm_fdes, "create-shm-fdes", 1, 0, 0,
   size_t c_length;
   SCM_VALIDATE_ULONG_COPY(SCM_ARG1, length, c_length);
 
-  char path[64];
-  snprintf(path, sizeof(path), "/shm-%lu", atomic_fetch_add(&shm_counter, 1));
+  int fd = memfd_create("guile-wayland", MFD_CLOEXEC | MFD_ALLOW_SEALING);
 
-  int fd = shm_open(path, O_RDWR | O_CREAT | O_EXCL, S_IWUSR | S_IRUSR);
   if (fd < 0)
     scm_syserror(FUNC_NAME);
-  if (shm_unlink(FUNC_NAME) < 0 || ftruncate(fd, c_length) < 0) {
+
+  if (ftruncate(fd, c_length) < 0) {
     close(fd);
     scm_syserror(FUNC_NAME);
   }
@@ -87,7 +89,7 @@ SCM_DEFINE_PUBLIC(scm_create_shm_fdes, "create-shm-fdes", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static long signature_arg_count(const char *signature) {
+long scm_i_signature_arg_count(const char *signature) {
   long count = 0;
   for ( ; *signature; signature++) {
     if (*signature != '?')
@@ -116,7 +118,7 @@ static void unpack_message(SCM message, struct wl_message *out,
   out->signature = scm_to_utf8_string(signature);
   out->types     = scm_calloc(type_count * sizeof(struct wl_interface *));
 
-  SCM_ASSERT_TYPE(type_count == signature_arg_count(out->signature),
+  SCM_ASSERT_TYPE(type_count == scm_i_signature_arg_count(out->signature),
       types, SCM_ARGn, FUNC_NAME, "type list with same arg count as signature");
 
   long i = 0;
@@ -184,6 +186,219 @@ SCM_DEFINE_PUBLIC(scm_wl_interface_set, "wl-interface-set", 5, 0, 0,
   i_interface->events = i_events;
 
   return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+#define FUNC_NAME subr
+union wl_argument *scm_i_pack_wl_arguments(long pos, const char *subr,
+    const struct wl_message *request, bool server, SCM rest) {
+  long length = scm_ilength(rest);
+  union wl_argument *args = scm_malloc(length * sizeof(union wl_argument));
+  scm_dynwind_free(args);
+
+  const char *signature = request->signature;
+  bool nullable = false;
+  long i = 0;
+  for (; *signature; signature++) {
+    if (SCM_UNLIKELY(i >= length || scm_is_eq(rest, SCM_EOL))) {
+      scm_error(scm_args_number_key, FUNC_NAME,
+          "Wrong number of arguments to ~A (expecting ~A): ~A",
+          scm_list_3(
+            scm_from_utf8_string(request->name),
+            scm_from_size_t(
+              scm_i_signature_arg_count(request->signature)),
+            scm_from_long(length)),
+          SCM_BOOL_F);
+    }
+    SCM arg = SCM_CAR(rest);
+    switch (*signature) {
+    case '?':
+      nullable = true;
+      continue;
+    case 'i':
+      SCM_VALIDATE_INT_COPY(pos + i, arg, args[i].i);
+      break;
+    case 'u':
+      SCM_VALIDATE_UINT_COPY(pos + i, arg, args[i].u);
+      break;
+    case 'f':
+      {
+        double d;
+        SCM_VALIDATE_DOUBLE_COPY(pos + i, arg, d);
+        args[i].f = wl_fixed_from_double(d);
+      }
+      break;
+    case 's':
+      SCM_ASSERT_TYPE(nullable || !scm_is_false(arg), arg, pos + i,
+          FUNC_NAME, "string");
+      if (scm_is_false(arg)) {
+        args[i].s = NULL;
+      } else {
+        SCM_VALIDATE_STRING(pos + i, arg);
+        args[i].s = scm_to_utf8_string(arg);
+        scm_dynwind_free((char *) args[i].s);
+      }
+      break;
+    case 'o':
+      SCM_ASSERT_TYPE(nullable || !scm_is_false(arg), arg, pos + i,
+          FUNC_NAME, "wl-proxy");
+      if (scm_is_false(arg)) {
+        args[i].o = NULL;
+      } else if (server) {
+        SCM_VALIDATE_WL_RESOURCE_COPY(pos + i, arg, args[i].o);
+      } else {
+        SCM_VALIDATE_WL_PROXY_COPY(pos + i, arg, args[i].o);
+      }
+      break;
+    case 'n':
+      args[i].o = NULL;
+      break;
+    case 'a':
+      SCM_ASSERT_TYPE(nullable || !scm_is_false(arg), arg, pos + i,
+          FUNC_NAME, "array");
+      if (scm_is_false(arg)) {
+        args[i].a = NULL;
+      } else {
+        SCM vec = scm_any_to_u32vector(arg);
+        scm_t_array_handle *handle = scm_malloc(sizeof(scm_t_array_handle));
+        scm_dynwind_unwind_handler(
+            (void (*)(void *)) scm_array_handle_release, handle,
+            SCM_F_WIND_EXPLICITLY);
+        struct wl_array *array = scm_malloc(sizeof(struct wl_array));
+        scm_dynwind_free(array);
+        array->data = (void *) scm_u32vector_elements(
+            vec, handle, &array->size, NULL);
+        array->alloc = array->size;
+        args[i].a = array;
+      }
+      break;
+    case 'h':
+      SCM_VALIDATE_INT_COPY(pos + i, arg, args[i].h);
+      break;
+    default:
+      break;
+    }
+    nullable = false;
+    i++;
+    rest = SCM_CDR(rest);
+  }
+  return args;
+}
+#undef FUNC_NAME
+
+SCM *scm_i_unpack_wl_arguments(const struct wl_message *message,
+    long argc, const union wl_argument *args, bool server) {
+  SCM *argv = scm_calloc(argc * sizeof(SCM));
+  scm_dynwind_free(argv);
+  long i = 0;
+  for (const char *signature = message->signature; *signature; signature++) {
+    if (i > argc)
+      break;
+    switch (*signature) {
+    case '?':
+      continue;
+    case 'i':
+      argv[i] = scm_from_int32(args[i].i);
+      break;
+    case 'u':
+      argv[i] = scm_from_uint32(args[i].u);
+      break;
+    case 'f':
+      argv[i] = scm_from_double(wl_fixed_to_double(args[i].f));
+      break;
+    case 's':
+      if (args[i].s) {
+        argv[i] = scm_from_utf8_string(args[i].s);
+      } else {
+        argv[i] = SCM_BOOL_F;
+      }
+      break;
+    case 'o':
+    case 'n':
+      if (args[i].o) {
+        if (server) {
+          struct wl_resource *resource = (struct wl_resource *) args[i].o;
+          argv[i] = scm_from_uint32(wl_resource_get_id(resource));
+        } else {
+          argv[i] = scm_from_wl_proxy((struct wl_proxy *) args[i].o);
+        }
+      } else {
+        argv[i] = SCM_BOOL_F;
+      }
+      break;
+    case 'a':
+      {
+        if (args[i].a) {
+          size_t size = args[i].a->size;
+          if (size) {
+            void *array = scm_malloc(size);
+            memcpy(array, args[i].a->data, size);
+            argv[1] = scm_take_u32vector(array, size);
+          } else {
+            argv[1] = scm_list_to_u32vector(SCM_EOL);
+          }
+        } else {
+        argv[i] = SCM_BOOL_F;
+        }
+      }
+      break;
+    case 'h':
+      argv[i] = scm_from_int(args[i].h);
+      break;
+    default:
+      break;
+    }
+    i++;
+  }
+  for (; i < argc; i++) {
+    argv[i] = SCM_UNDEFINED;
+  }
+  return argv;
+}
+
+#define FUNC_NAME subr
+void scm_i_validate_dispatch_list(long pos, const char *subr,
+    const char *iface_name, int message_count,
+    const struct wl_message *messages, int extra, SCM rest) {
+  long count = scm_ilength(rest);
+  if (SCM_UNLIKELY(count != message_count + extra)) {
+    scm_error(scm_args_number_key, subr,
+        "Wrong number of arguments to ~A (expecting ~A): ~A",
+        scm_list_3(
+          scm_from_utf8_string(iface_name),
+          scm_from_int(message_count),
+          scm_from_long(count)),
+        SCM_BOOL_F);
+  }
+  int i = 0;
+  SCM iter = rest;
+  for (long i = 0; i < message_count; i++) {
+    SCM proc = SCM_CAR(iter);
+    if (!scm_is_false(proc)) {
+      SCM_VALIDATE_PROC(pos + i, proc);
+      long argc = scm_i_signature_arg_count(messages[i].signature);
+      SCM arities = scm_procedure_minimum_arity(proc);
+      if (!scm_is_false(arities)) {
+        int req = scm_to_int(SCM_CAR(arities));
+        int opt = scm_to_int(SCM_CADR(arities));
+        int restc = scm_to_int(SCM_CADDR(arities));
+        if (SCM_UNLIKELY(req > argc || (!restc && req + opt < argc))) {
+          scm_error(scm_arg_type_key,
+              subr,
+              "Expected procedure of arity ~A in position ~A "
+              "(~A.~A, opcode ~A)",
+              scm_list_5(
+                scm_from_long(argc),
+                scm_from_int(pos + i),
+                scm_from_utf8_string(iface_name),
+                scm_from_utf8_string(messages[i].name),
+                scm_from_uint32(i)),
+              scm_list_1(proc));
+        }
+      }
+    }
+    iter = SCM_CDR(iter);
+  }
 }
 #undef FUNC_NAME
 

@@ -11,39 +11,10 @@ SCM scm_wl_cursor_theme_type;
 SCM scm_wl_cursor_type;
 SCM scm_wl_cursor_image_type;
 
-#define SCM_VALIDATE_WL_CURSOR_THEME_COPY(pos, c, cursor_theme) \
-  do { \
-    SCM_ASSERT_TYPE(SCM_IS_A_P(c, scm_wl_cursor_theme_type), \
-        c, pos, FUNC_NAME, "wl-cursor-theme"); \
-    cursor_theme = scm_foreign_object_ref(c, 0); \
-    SCM_ASSERT_TYPE(cursor_theme, c, pos, FUNC_NAME, "non-null wl_cursor_theme"); \
-  } while (0)
-
-#define SCM_VALIDATE_WL_CURSOR_COPY(pos, c, cursor) \
-  do { \
-    SCM_ASSERT_TYPE(SCM_IS_A_P(c, scm_wl_cursor_type), \
-        c, pos, FUNC_NAME, "wl-cursor"); \
-    cursor = scm_foreign_object_ref(c, 0); \
-    SCM_ASSERT_TYPE(cursor, c, pos, FUNC_NAME, "non-null wl_cursor"); \
-  } while (0)
-
-#define SCM_VALIDATE_WL_CURSOR_IMAGE_COPY(pos, c, cursor_image) \
-  do { \
-    SCM_ASSERT_TYPE(SCM_IS_A_P(c, scm_wl_cursor_image_type), \
-        c, pos, FUNC_NAME, "wl-cursor-image"); \
-    cursor_image = scm_foreign_object_ref(c, 0); \
-    SCM_ASSERT_TYPE(cursor_image, c, pos, FUNC_NAME, "non-null wl_cursor_image"); \
-  } while (0)
-
 #define FUNC_NAME s_scm_wl_cursor_theme_load
 SCM_DEFINE_PUBLIC(scm_wl_cursor_theme_load, "wl-cursor-theme-load", 3, 0, 0,
     (SCM name, SCM size, SCM shm),
     "") {
-  SCM client_proto = scm_c_resolve_module("wayland client protocol");
-  SCM sinterface = scm_c_module_lookup(client_proto, "wl-shm-interface");
-  struct wl_interface *shm_interface
-    = scm_foreign_object_ref(scm_variable_ref(sinterface), 0);
-
   scm_dynwind_begin(0);
   char *i_name = NULL;
   if (!scm_is_false(name)) {
@@ -55,10 +26,7 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_theme_load, "wl-cursor-theme-load", 3, 0, 0,
   SCM_VALIDATE_INT_COPY(SCM_ARG2, size,  i_size);
 
   struct wl_shm *i_shm;
-  struct wl_interface *interface;
-  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG3, shm, i_shm, interface); \
-  SCM_ASSERT_TYPE(interface == shm_interface,
-      shm, SCM_ARG3, FUNC_NAME, interface->name);
+  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG3, shm, i_shm);
 
   struct wl_cursor_theme *theme = wl_cursor_theme_load(i_name, i_size, i_shm);
   if (!theme)
@@ -116,7 +84,7 @@ SCM_DEFINE_PUBLIC(scm_wl_cursor_image_get_buffer,
   struct wl_buffer *buffer = wl_cursor_image_get_buffer(i_image);
   if (!buffer)
     scm_report_out_of_memory();
-  return scm_c_make_wl_proxy((struct wl_proxy *) buffer, buffer_interface);
+  return scm_from_wl_proxy((struct wl_proxy *) buffer);
 }
 #undef FUNC_NAME
 

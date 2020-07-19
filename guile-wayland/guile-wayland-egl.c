@@ -13,16 +13,8 @@ SCM scm_wl_egl_window_type;
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_create, "wl-egl-window-create", 3, 0, 0,
     (SCM surface, SCM width, SCM height),
     "") {
-  SCM client_proto = scm_c_resolve_module("wayland client protocol");
-  SCM sinterface = scm_c_module_lookup(client_proto, "wl-surface-interface");
-  struct wl_interface *surface_interface
-    = scm_foreign_object_ref(scm_variable_ref(sinterface), 0);
-
   struct wl_surface *i_surface;
-  struct wl_interface *interface;
-  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, surface, i_surface, interface); \
-  SCM_ASSERT_TYPE(interface == surface_interface,
-      surface, SCM_ARG1, FUNC_NAME, interface->name);
+  SCM_VALIDATE_WL_PROXY_COPY(SCM_ARG1, surface, i_surface);
 
   int i_width, i_height;
   SCM_VALIDATE_INT_COPY(SCM_ARG2, width,  i_width);
@@ -33,14 +25,6 @@ SCM_DEFINE_PUBLIC(scm_wl_egl_window_create, "wl-egl-window-create", 3, 0, 0,
   return scm_make_foreign_object_1(scm_wl_egl_window_type, egl_window);
 }
 #undef FUNC_NAME
-
-#define SCM_VALIDATE_WL_EGL_WINDOW_COPY(pos, w, egl_window) \
-  do { \
-    SCM_ASSERT_TYPE(SCM_IS_A_P(w, scm_wl_egl_window_type), \
-        w, pos, FUNC_NAME, "wl-egl-window"); \
-    egl_window = scm_foreign_object_ref(w, 0); \
-    SCM_ASSERT_TYPE(egl_window, w, pos, FUNC_NAME, "non-null wl_egl_window"); \
-  } while (0)
 
 #define FUNC_NAME s_scm_wl_egl_window_destroy
 SCM_DEFINE_PUBLIC(scm_wl_egl_window_destroy, "wl-egl-window-destroy", 1, 0, 0,
