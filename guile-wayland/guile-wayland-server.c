@@ -207,7 +207,7 @@ static int signal_func(int signal_number, void *data) {
 
 #define FUNC_NAME s_scm_wl_event_loop_add_signal
 SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_signal,
-    "wl-event-loop-add-signal", 2, 0, 0,
+    "wl-event-loop-add-signal", 3, 0, 0,
     (SCM loop, SCM signal, SCM thunk),
     "") {
   struct wl_event_loop *c_loop;
@@ -227,7 +227,7 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_signal,
 
 #define FUNC_NAME s_scm_wl_event_source_timer_update
 SCM_DEFINE_PUBLIC(scm_wl_event_source_timer_update,
-    "wl-event-source-timer_update", 2, 0, 0,
+    "wl-event-source-timer-update", 2, 0, 0,
     (SCM source, SCM ms_delay),
     "") {
   struct wl_event_source *c_source;
@@ -737,7 +737,7 @@ SCM_DEFINE_PUBLIC(scm_wl_global_get_interface,
 #undef FUNC_NAME
 
 #define FUNC_NAME s_scm_wl_client_create
-SCM_DEFINE_PUBLIC(scm_wl_client_create, "wl-client-create", 4, 0, 0,
+SCM_DEFINE_PUBLIC(scm_wl_client_create, "wl-client-create", 2, 0, 0,
     (SCM display, SCM fd),
     "") {
   struct wl_display *c_display;

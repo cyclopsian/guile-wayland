@@ -289,7 +289,7 @@
   (let ((type-str (symbol->string type)))
     (format-pretty f
       `(eval-when (expand load eval)
-        (load-extension ,(string-append "libguile-wayland-" type-str)
+        (load-extension "libguile-wayland"
                         ,(string-append "scm_init_wayland_" type-str)))))
 
   (format-newline f)
@@ -458,6 +458,7 @@
 
 (define-method (format-destructor (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
+         (int-name (format-interface-name f (slot-ref interface 'name)))
          (class-name (format-class-name f name type))
          (destructor (list-index
                        (λ (req) (equal? (slot-ref req 'type) "destructor"))
@@ -465,7 +466,7 @@
     (format-pretty f
       `(define-method
          (destroy (,name ,class-name))
-         ,@(if destructor `((wl-proxy-marshal ,name ,destructor)) '())
+         ,@(if destructor `((wl-proxy-marshal ,name ,int-name ,destructor)) '())
          (wl-proxy-destroy ,name)))))
 
 (define* (wl-scanner #:key (type 'client)

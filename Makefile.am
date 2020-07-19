@@ -5,60 +5,39 @@ ACLOCAL_AMFLAGS = -I m4
 
 AM_CFLAGS = $(WARN_CFLAGS) $(DEBUG_CFLAGS)
 
-guileextension_LTLIBRARIES = \
-	libguile-wayland-client.la libguile-wayland-server.la
+guileextension_LTLIBRARIES = libguile-wayland.la
 guileextensiondir = $(GUILE_EXTENSION)
 
 moddir = $(GUILE_SITE)
 objdir = $(GUILE_SITE_CCACHE)
 
-UTIL_SRCS = guile-wayland/guile-wayland-util.c
-CLIENT_SRCS = \
+libguile_wayland_la_SOURCES = \
+	guile-wayland/guile-wayland-client.c \
 	guile-wayland/guile-wayland-cursor.c \
 	guile-wayland/guile-wayland-egl.c \
-	guile-wayland/guile-wayland-client.c
-SERVER_SRCS = \
-	guile-wayland/guile-wayland-server.c
-
-libguile_wayland_client_la_SOURCES = $(CLIENT_SRCS) $(UTIL_SRCS)
-libguile_wayland_client_la_includedir = $(includedir)/guile-wayland-client
-libguile_wayland_client_la_include_HEADERS = \
+	guile-wayland/guile-wayland-server.c \
+	guile-wayland/guile-wayland-util.c
+libguile_wayland_la_includedir = $(includedir)/guile-wayland
+libguile_wayland_la_include_HEADERS = \
 	guile-wayland/guile-wayland-client.h \
 	guile-wayland/guile-wayland-cursor.h \
 	guile-wayland/guile-wayland-egl.h \
-	guile-wayland/guile-wayland-util.h
-libguile_wayland_client_la_CFLAGS = \
-	$(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) \
-	$(AM_CFLAGS) $(GUILE_CFLAGS)
-libguile_wayland_client_la_LIBADD = \
-	$(WAYLAND_CLIENT_LIBS) $(WAYLAND_CURSOR_LIBS) $(WAYLAND_EGL_LIBS) \
-	$(GUILE_LIBS)
-libguile_wayland_client_la_LDFLAGS = -export-dynamic
-
-libguile_wayland_server_la_SOURCES = $(SERVER_SRCS) $(UTIL_SRCS)
-libguile_wayland_server_la_includedir = $(includedir)/guile-wayland-server
-libguile_wayland_server_la_include_HEADERS = \
+	guile-wayland/guile-wayland-util.h \
 	guile-wayland/guile-wayland-server.h
-libguile_wayland_server_la_CFLAGS = \
-	$(WAYLAND_SERVER_CFLAGS) $(AM_CFLAGS) $(GUILE_CFLAGS)
-libguile_wayland_server_la_LIBADD = \
-	$(WAYLAND_SERVER_LIBS) $(GUILE_LIBS)
-libguile_wayland_server_la_LDFLAGS = -export-dynamic
+libguile_wayland_la_CFLAGS = \
+	$(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) \
+	$(WAYLAND_SERVER_CFLAGS) \
+	$(AM_CFLAGS) $(GUILE_CFLAGS)
+libguile_wayland_la_LIBADD = \
+	$(WAYLAND_CLIENT_LIBS) $(WAYLAND_CURSOR_LIBS) $(WAYLAND_EGL_LIBS) \
+	$(WAYLAND_SERVER_LIBS) \
+	$(GUILE_LIBS)
+libguile_wayland_la_LDFLAGS = -export-dynamic
 
-DOT_X = $(UTIL_SRCS:.c=.x)
-CLIENT_DOT_X = $(CLIENT_SRCS:.c=.x)
-SERVER_DOT_X = $(SERVER_SRCS:.c=.x)
+DOT_X = $(libguile_wayland_la_SOURCES:.c=.x)
 
 $(DOT_X): %.x : %.c
 	$(GUILE_SNARF) $(AM_CFLAGS) $(GUILE_CFLAGS) $(CFLAGS) $< > $@ \
-		|| { rm $@; false; }
-
-$(CLIENT_DOT_X): %.x : %.c
-	$(GUILE_SNARF) $(libguile_wayland_client_la_CFLAGS) $(CFLAGS) $< > $@ \
-		|| { rm $@; false; }
-
-$(SERVER_DOT_X): %.x : %.c
-	$(GUILE_SNARF) $(libguile_wayland_server_la_CFLAGS) $(CFLAGS) $< > $@ \
 		|| { rm $@; false; }
 
 SOURCES = \
@@ -72,7 +51,7 @@ SOURCES = \
 SCANNER = wayland/scanner.scm
 PROTOS = wayland/client/protocol.scm wayland/server/protocol.scm
 
-BUILT_SOURCES = $(PROTOS) $(CLIENT_DOT_X) $(SERVER_DOT_X) $(DOT_X)
+BUILT_SOURCES = $(PROTOS) $(DOT_X)
 
 GOBJECTS =  $(SOURCES:.scm=.go) $(PROTOS:.scm=.go)
 SCANNER_GOBJECTS = $(SCANNER:.scm=.go)
@@ -105,8 +84,6 @@ nobase_nodist_obj_DATA = $(GOBJECTS) $(SCANNER_GOBJECTS)
 
 pkgconfig_DATA = guile-wayland-client.pc guile-wayland-server.pc
 
-CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) \
-	$(BUILT_SOURCES) $(DOT_X) $(CLIENT_DOT_X) $(SERVER_DOT_X)
+CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X)
 
-EXTRA_DIST = $(PROTOS) $(SOURCES) $(SCANNER) \
-	$(GOBJECTS) $(SCANNER_GOBJECTS)
+EXTRA_DIST = $(PROTOS) $(SOURCES) $(SCANNER) $(GOBJECTS) $(SCANNER_GOBJECTS)

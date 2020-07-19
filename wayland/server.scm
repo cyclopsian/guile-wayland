@@ -3,7 +3,7 @@
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
 (eval-when (expand load eval)
-  (load-extension "libguile-wayland-server" "scm_init_wayland_server"))
+  (load-extension "libguile-wayland" "scm_init_wayland_server"))
 
 (define-module (wayland server)
   #:use-module (oop goops)
@@ -28,7 +28,7 @@
                 get-format get-width get-height ref-pool unref
 
                 init-shm add-shm-format add-protocol-logger)
-   #:re-export (<wl-event-source> <wl-event-loop> <wl-display-server
+   #:re-export (<wl-event-source> <wl-event-loop> <wl-display-server>
                 <wl-client> <wl-global> <wl-resource> <wl-listener>
                 <wl-shm-buffer> <wl-shm-pool-ref> <wl-protocol-logger>
                 <wl-resource-class>
@@ -98,7 +98,7 @@
   (wl-event-loop-add-destroy-listener loop thunk))
 
 (define-method (initialize (disp <wl-display-server>))
-  (let ((other (wl-event-display-create)))
+  (let ((other (wl-display-create)))
     (slot-set! disp 'display (slot-ref other 'display))
     (slot-set! other 'display 0)))
 
@@ -111,7 +111,7 @@
 (define-method (add-socket (disp <wl-display-server>) . args)
   (apply
     (case-lambda
-      ((name)
+      ((arg)
        (cond
          ((is-a? arg <string>) (wl-display-add-socket disp arg))
          ((is-a? arg <integer>) (wl-display-add-socket-fd disp arg))
