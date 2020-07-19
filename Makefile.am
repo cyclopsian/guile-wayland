@@ -82,7 +82,7 @@ bin_SCRIPTS = wayland-scanner-guile
 nobase_mod_DATA = $(PROTOS) $(SOURCES) $(NOCOMP_SOURCES)
 nobase_nodist_obj_DATA = $(GOBJECTS) $(SCANNER_GOBJECTS)
 
-pkgconfig_DATA = guile-wayland-client.pc guile-wayland-server.pc
+pkgconfig_DATA = guile-wayland.pc
 
 CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X)
 

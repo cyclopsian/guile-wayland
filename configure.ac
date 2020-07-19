@@ -46,8 +46,7 @@ AC_SUBST(WAYLAND_DATADIR)
 AC_PROG_CC
 AM_PROG_AR
 LT_INIT([disable-static])
-AC_CONFIG_FILES([Makefile wayland/config.scm
-                 guile-wayland-client.pc guile-wayland-server.pc])
+AC_CONFIG_FILES([Makefile wayland/config.scm guile-wayland.pc])
 AC_CONFIG_FILES([env], [chmod +x env])
 AC_CONFIG_FILES([wayland-scanner-guile], [chmod +x wayland-scanner-guile])
 AC_OUTPUT

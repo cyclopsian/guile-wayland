@@ -7,9 +7,9 @@ libdir=@GUILE_EXTENSION@
 includedir=@includedir@/guile-wayland
 wayland_scanner_guile=@bindir@/wayland-scanner-guile
 
-Name: guile-wayland-server
-Description: Wayland server bindings for Guile Scheme
+Name: guile-wayland
+Description: Wayland bindings for Guile Scheme
 Version: @VERSION@
-Requires.private: wayland guile-@GUILE_EFFECTIVE_VERSION@
-Libs: -L${libdir} -lguile-wayland-server
+Requires.private: wayland-client wayland-cursor wayland-egl wayland-server guile-@GUILE_EFFECTIVE_VERSION@
+Libs: -L${libdir} -lguile-wayland
 Cflags: -I${includedir}
