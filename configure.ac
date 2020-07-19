@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 AC_INIT([guile-wayland], [1.0], [jason@cycles.network])
-AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
+AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIRS([m4])
+AC_CONFIG_SRCDIR([guile-wayland.pc.in])
+AC_USE_SYSTEM_EXTENSIONS
+AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
 AM_SILENT_RULES([yes])
 
 PKG_INSTALLDIR
