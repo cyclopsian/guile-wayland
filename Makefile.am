@@ -22,8 +22,9 @@ libguile_wayland_la_include_HEADERS = \
 	guile-wayland/guile-wayland-client.h \
 	guile-wayland/guile-wayland-cursor.h \
 	guile-wayland/guile-wayland-egl.h \
+	guile-wayland/guile-wayland-server.h \
 	guile-wayland/guile-wayland-util.h \
-	guile-wayland/guile-wayland-server.h
+	guile-wayland/guile-wayland-util-private.h
 libguile_wayland_la_CFLAGS = \
 	$(WAYLAND_CLIENT_CFLAGS) $(WAYLAND_CURSOR_CFLAGS) $(WAYLAND_EGL_CFLAGS) \
 	$(WAYLAND_SERVER_CFLAGS) \
@@ -97,4 +98,4 @@ $(check_SCRIPTS): %.go: %.scm
 
 CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X)
 
-EXTRA_DIST = $(SOURCES) $(SCANNER) LICENSES .reuse
+EXTRA_DIST = $(SOURCES) $(SCANNER) $(TESTS) LICENSES .reuse
