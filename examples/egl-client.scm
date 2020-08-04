@@ -22,7 +22,7 @@
        (focused #f))
   (add-listener registry
     #:global
-    (λ (name interface version)
+    (λ (id interface version)
       (cond
         ((equal? interface (name <wl-seat>))
          (set! seat (bind registry name <wl-seat> 1))
@@ -35,9 +35,9 @@
                  (λ (serial time button state)
                    (move focused seat serial)))))))
         ((equal? interface (name <wl-compositor>))
-         (set! compositor (bind registry name <wl-compositor> 1)))
+         (set! compositor (bind registry id <wl-compositor> 4)))
         ((equal? interface (name <xdg-wm-base>))
-         (set! xdg-wm-base (bind registry name <xdg-wm-base> 1))))))
+         (set! xdg-wm-base (bind registry id <xdg-wm-base> 1))))))
   (dispatch disp)
   (roundtrip disp)
   (unless compositor

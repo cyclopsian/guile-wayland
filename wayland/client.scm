@@ -2,15 +2,12 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(eval-when (expand load eval)
-  (load-extension "libguile-wayland" "scm_init_wayland_client"))
-
 (define-module (wayland client)
   #:use-module (oop goops)
   #:use-module (wayland client core)
   #:use-module (wayland client protocol)
   #:use-module (wayland util)
-      #:export (interface name
+      #:export (interface
 
                 create-wrapper wrapper-destroy
                 get-version get-id get-class get-symbol set-queue
@@ -20,12 +17,20 @@
                 get-protocol-error flush roundtrip-queue roundtrip create-queue
                 prepare-read-queue prepare-read cancel-read read-events)
    #:re-export (<wl-display> <wl-event-queue> <wl-proxy> <wl-proxy-class>
-                initialize destroy wl-set-log-port-client)
-     #:replace (bind)
-  #:duplicates (merge-generics))
+                initialize make-instance name destroy wl-set-log-port-client)
+  #:duplicates (merge-generics replace))
 
-(module-use! (module-public-interface (current-module))
-             (resolve-interface '(wayland client protocol)))
+(eval-when (expand load eval)
+  ((@ (rnrs base) let*-values)
+   (((guile) (resolve-interface '(guile)))
+    ((protocol-syms) (module-map (compose car cons)
+                                 (resolve-interface
+                                   '(wayland client protocol))))
+    ((replaces re-exports) ((@ (srfi srfi-1) partition)
+                            (λ (sym) (module-bound? guile sym))
+                            protocol-syms)))
+   (module-re-export! (current-module) replaces #:replace? #t)
+   (module-re-export! (current-module) re-exports)))
 
 (define-syntax add-accessors
   (syntax-rules ()
@@ -39,14 +44,14 @@
 
 (add-accessors <wl-proxy-class> interface)
 
-(define-method (name (interface <wl-interface>))
-  (wl-interface-name interface))
+(define-method (make-instance (class <wl-proxy-class>) (proxy <wl-proxy>))
+  (wl-proxy-cast proxy class))
+
+(define-method (name (proxy-class <wl-proxy-class>))
+  (name (interface proxy-class)))
 
 (define-method (destroy (queue <wl-event-queue>))
   (wl-event-queue-destroy queue))
-
-(define-method (initialize (proxy <wl-proxy>) (other <wl-proxy>))
-  (wl-proxy-move other proxy))
 
 (define-method (create-wrapper (proxy <wl-proxy>))
   (make (class-of proxy) (wl-proxy-create-wrapper proxy)))
@@ -69,20 +74,17 @@
 (define-method (set-queue (proxy <wl-proxy>) (queue <wl-event-queue>))
   (wl-proxy-set-queue proxy queue))
 
+(define-method (display-connect (disp <wl-display>))
+  (wl-display-connect disp))
+
+(define-method (display-connect (disp <wl-display>) (socket-name <string>))
+  (wl-display-connect disp socket-name))
+
+(define-method (display-connect (disp <wl-display>) (fd <integer>))
+  (wl-display-connect-to-fd disp fd))
+
 (define-method (initialize (disp <wl-display>) args)
-  (wl-proxy-move
-    (apply
-      (case-lambda
-        ((arg)
-         (cond
-           ((is-a? arg <string>) (wl-display-connect arg))
-           ((is-a? arg <integer>) (wl-display-connect-to-fd arg))
-           (else (scm-error 'wrong-type-arg "wl-display-initialize"
-                            "Expected string, integer or #f: ~a"
-                            (list arg) (list arg)))))
-        (() (wl-display-connect)))
-      args)
-    disp))
+  (apply display-connect disp args))
 
 (define-method (disconnect (disp <wl-display>))
   (wl-display-disconnect disp))
@@ -134,4 +136,4 @@
 
 (define-method
   (bind (registry <wl-registry>) name (cls <wl-proxy-class>) version)
-  (bind registry name (interface cls) version))
+  (make cls (bind registry name (interface cls) version)))

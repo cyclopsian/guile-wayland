@@ -17,6 +17,4 @@ void scm_i_validate_dispatch_list(long pos, const char *subr,
     const char *iface_name, int message_count,
     const struct wl_message *messages, int extra, SCM rest);
 
-void scm_i_init_wayland_util(void);
-
 #endif

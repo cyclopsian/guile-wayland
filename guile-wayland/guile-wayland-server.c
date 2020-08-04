@@ -30,6 +30,14 @@ SCM_SYMBOL(sym_out_of_memory, "out-of-memory");
 SCM_SYMBOL(sym_request, "request");
 SCM_SYMBOL(sym_event, "event");
 
+static SCM object_hash;
+static SCM change_object_class;
+
+static void init_change_object_class_var(void) {
+  change_object_class
+    = scm_c_private_lookup("oop goops", "change-object-class");
+}
+
 SCM scm_c_make_wl_listener(SCM proc, wl_notify_func_t func,
     struct wl_listener **link) {
   struct scm_wl_listener *listener = scm_calloc(sizeof(*listener));
@@ -40,16 +48,18 @@ SCM scm_c_make_wl_listener(SCM proc, wl_notify_func_t func,
   return scm_make_foreign_object_1(scm_wl_listener_type, listener);
 }
 
+/* Foreign objects need to be protected from GC when an SCM value inside
+ * them is held by a C struct. */
 static void foreign_set_protected(SCM foreign, size_t n, SCM value) {
   void *c_value = NULL;
   if (!scm_is_false(value)) {
     c_value = SCM_UNPACK_POINTER(value);
-    scm_gc_protect_object(value);
+    scm_gc_protect_object(foreign);
   }
 
   void *old_value = scm_foreign_object_ref(foreign, n);
   if (old_value != NULL) {
-    scm_gc_unprotect_object(SCM_PACK_POINTER(old_value));
+    scm_gc_unprotect_object(foreign);
   }
 
   scm_foreign_object_set_x(foreign, n, c_value);
@@ -71,13 +81,16 @@ SCM_DEFINE_PUBLIC(scm_wl_listener_destroy, "wl-listener-destroy", 1, 0, 0,
 #undef FUNC_NAME
 
 #define FUNC_NAME s_scm_wl_event_loop_create
-SCM_DEFINE_PUBLIC(scm_wl_event_loop_create, "wl-event-loop-create", 0, 0, 0,
-    (void),
+SCM_DEFINE_PUBLIC(scm_wl_event_loop_create, "wl-event-loop-create", 1, 0, 0,
+    (SCM loop),
     "") {
-  struct wl_event_loop *loop = wl_event_loop_create();
-  if (!loop)
+  SCM_VALIDATE_NULL_TYPE(
+      scm_wl_event_loop_type, "<wl-event-loop>", SCM_ARG1, loop);
+  struct wl_event_loop *c_loop = wl_event_loop_create();
+  if (!c_loop)
     scm_syserror(FUNC_NAME);
-  return scm_make_foreign_object_1(scm_wl_event_loop_type, loop);
+  scm_foreign_object_set_x(loop, 0, c_loop);
+  return loop;
 }
 #undef FUNC_NAME
 
@@ -93,31 +106,19 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_destroy, "wl-event-loop-destroy", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-struct loop_func_data {
-  void *data;
-  uint32_t mask;
-  int ret;
-};
-
-static void *scm_fd_func(void *data) {
-  struct loop_func_data *d = data;
-  SCM proc = SCM_PACK_POINTER(d->data);
+static int fd_func(int fd, uint32_t mask, void *data) {
+  int ret = 0;
+  SCM proc = SCM_PACK_POINTER(data);
   SCM result;
   if (scm_thunk_p(proc)) {
     result = scm_call_0(proc);
   } else {
-    result = scm_call_1(proc, scm_from_uint32(d->mask));
+    result = scm_call_1(proc, scm_from_uint32(mask));
   }
-  if (scm_is_true(result)) {
-    d->ret = 1;
+  if (scm_is_eq(result, SCM_BOOL_T)) {
+    ret = 1;
   }
-  return NULL;
-}
-
-static int fd_func(int fd, uint32_t mask, void *data) {
-  struct loop_func_data d = { data, mask, 0 };
-  scm_with_guile(scm_fd_func, &d);
-  return d.ret;
+  return ret;
 }
 
 #define FUNC_NAME s_scm_wl_event_loop_add_fd
@@ -141,12 +142,14 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_fd, "wl-event-loop-add-fd", 4, 0, 0,
     }
   }
   void *c_proc = SCM_UNPACK_POINTER(proc);
-  struct wl_event_source *source = wl_event_loop_add_fd(c_loop, c_fd, c_mask,
+  struct wl_event_source *c_source = wl_event_loop_add_fd(c_loop, c_fd, c_mask,
       fd_func, c_proc);
-  if (!source)
+  if (!c_source)
     scm_syserror(FUNC_NAME);
-  scm_gc_protect_object(proc);
-  return scm_make_foreign_object_2(scm_wl_event_source_type, source, c_proc);
+  SCM source
+    = scm_make_foreign_object_2(scm_wl_event_source_type, c_source, NULL);
+  foreign_set_protected(source, 1, proc);
+  return source;
 }
 #undef FUNC_NAME
 
@@ -168,17 +171,15 @@ SCM_DEFINE_PUBLIC(scm_wl_event_source_fd_update,
 
 static void *scm_timer_func(void *data) {
   struct loop_func_data *d = data;
-  SCM thunk = SCM_PACK_POINTER(d->data);
-  if (scm_is_true(scm_call_0(thunk))) {
-    d->ret = 1;
-  }
   return NULL;
 }
 
 static int timer_func(void *data) {
-  struct loop_func_data d = { data, 0, 0 };
-  scm_with_guile(scm_timer_func, &d);
-  return d.ret;
+  SCM thunk = SCM_PACK_POINTER(data);
+  if (scm_is_eq(scm_call_0(thunk), SCM_BOOL_T)) {
+    return 1;
+  }
+  return 0;
 }
 
 #define FUNC_NAME s_scm_wl_event_loop_add_timer
@@ -190,19 +191,23 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_timer,
   SCM_VALIDATE_WL_EVENT_LOOP_COPY(SCM_ARG1, loop, c_loop);
   SCM_VALIDATE_THUNK(SCM_ARG2, thunk);
   void *c_thunk = SCM_UNPACK_POINTER(thunk);
-  struct wl_event_source *source
+  struct wl_event_source *c_source
     = wl_event_loop_add_timer(c_loop, timer_func, c_thunk);
-  if (!source)
+  if (!c_source)
     scm_syserror(FUNC_NAME);
-  scm_gc_protect_object(thunk);
-  return scm_make_foreign_object_2(scm_wl_event_source_type, source, c_thunk);
+  SCM source
+    = scm_make_foreign_object_2(scm_wl_event_source_type, c_source, NULL);
+  foreign_set_protected(source, 1, thunk);
+  return source;
 }
 #undef FUNC_NAME
 
 static int signal_func(int signal_number, void *data) {
-  struct loop_func_data d = { data, 0, 0 };
-  scm_with_guile(scm_timer_func, &d);
-  return d.ret;
+  SCM thunk = SCM_PACK_POINTER(data);
+  if (scm_is_eq(scm_call_0(thunk), SCM_BOOL_T)) {
+    return 1;
+  }
+  return 0;
 }
 
 #define FUNC_NAME s_scm_wl_event_loop_add_signal
@@ -216,12 +221,14 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_signal,
   SCM_VALIDATE_INT_COPY(SCM_ARG2, signal, c_signal);
   SCM_VALIDATE_THUNK(SCM_ARG3, thunk);
   void *c_thunk = SCM_UNPACK_POINTER(thunk);
-  struct wl_event_source *source
+  struct wl_event_source *c_source
     = wl_event_loop_add_signal(c_loop, c_signal, signal_func, c_thunk);
-  if (!source)
+  if (!c_source)
     scm_syserror(FUNC_NAME);
-  scm_gc_protect_object(thunk);
-  return scm_make_foreign_object_2(scm_wl_event_source_type, source, c_thunk);
+  SCM source
+    = scm_make_foreign_object_2(scm_wl_event_source_type, c_source, NULL);
+  foreign_set_protected(source, 1, thunk);
+  return source;
 }
 #undef FUNC_NAME
 
@@ -292,16 +299,9 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_dispatch_idle,
 }
 #undef FUNC_NAME
 
-static void *scm_idle_func(void *data) {
-  struct loop_func_data *d = data;
-  SCM thunk = SCM_PACK_POINTER(d->data);
-  scm_call_0(thunk);
-  return NULL;
-}
-
 static void idle_func(void *data) {
-  struct loop_func_data d = { data, 0, 0 };
-  scm_with_guile(scm_idle_func, &d);
+  SCM thunk = SCM_PACK_POINTER(data);
+  scm_call_0(thunk);
 }
 
 #define FUNC_NAME s_scm_wl_event_loop_add_idle
@@ -313,12 +313,14 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_idle,
   SCM_VALIDATE_WL_EVENT_LOOP_COPY(SCM_ARG1, loop, c_loop);
   SCM_VALIDATE_THUNK(SCM_ARG2, thunk);
   void *c_thunk = SCM_UNPACK_POINTER(thunk);
-  struct wl_event_source *source
+  struct wl_event_source *c_source
     = wl_event_loop_add_idle(c_loop, idle_func, c_thunk);
-  if (!source)
+  if (!c_source)
     scm_syserror(FUNC_NAME);
-  scm_gc_protect_object(thunk);
-  return scm_make_foreign_object_2(scm_wl_event_source_type, source, c_thunk);
+  SCM source
+    = scm_make_foreign_object_2(scm_wl_event_source_type, c_source, NULL);
+  foreign_set_protected(source, 1, thunk);
+  return source;
 }
 #undef FUNC_NAME
 
@@ -332,16 +334,10 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_get_fd, "wl-event-loop-get-fd", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static void *scm_noarg_notify(void *data) {
-  struct scm_wl_listener *listener = data;
-  scm_call_0(listener->proc);
-  return NULL;
-}
-
 static void noarg_notify(struct wl_listener *listener, void *data) {
   struct scm_wl_listener *scm_listener
     = wl_container_of(listener, scm_listener, listener);
-  scm_with_guile(scm_noarg_notify, scm_listener);
+  scm_call_0(scm_listener->proc);
 }
 
 #define FUNC_NAME s_scm_wl_event_loop_add_destroy_listener
@@ -360,13 +356,17 @@ SCM_DEFINE_PUBLIC(scm_wl_event_loop_add_destroy_listener,
 #undef FUNC_NAME
 
 #define FUNC_NAME s_scm_wl_display_create
-SCM_DEFINE_PUBLIC(scm_wl_display_create, "wl-display-create", 0, 0, 0,
-    (void),
+SCM_DEFINE_PUBLIC(scm_wl_display_create, "wl-display-create", 1, 0, 0,
+    (SCM display),
     "") {
-  struct wl_display *display = wl_display_create();
-  if (!display)
+  SCM_VALIDATE_NULL_TYPE(
+      scm_wl_display_type, "<wl-display-server>", SCM_ARG1, display);
+  struct wl_display *c_display = wl_display_create();
+  if (!c_display)
     scm_syserror(FUNC_NAME);
-  return scm_make_foreign_object_2(scm_wl_display_type, display, NULL);
+  scm_foreign_object_set_x(display, 0, c_display);
+  scm_hash_set_x(object_hash, scm_from_pointer(c_display, NULL), display);
+  return display;
 }
 #undef FUNC_NAME
 
@@ -376,6 +376,7 @@ SCM_DEFINE_PUBLIC(scm_wl_display_destroy, "wl-display-destroy", 1, 0, 0,
     "") {
   struct wl_display *c_display;
   SCM_VALIDATE_WL_DISPLAY_COPY(SCM_ARG1, display, c_display);
+  scm_hash_remove_x(object_hash, scm_from_pointer(c_display, NULL));
   wl_display_destroy(c_display);
   scm_foreign_object_set_x(display, 0, NULL);
   foreign_set_protected(display, 1, SCM_BOOL_F);
@@ -529,7 +530,12 @@ struct listener_data {
 };
 
 SCM scm_from_wl_client(struct wl_client *c_client) {
-  SCM client = scm_make_foreign_object_1(scm_wl_client_type, client);
+  SCM ptr = scm_from_pointer(c_client, NULL);
+  SCM client = scm_hash_ref(object_hash, ptr, SCM_BOOL_F);
+  if (!scm_is_false(client))
+    return client;
+  client = scm_make_foreign_object_1(scm_wl_client_type, c_client);
+  scm_hash_set_x(object_hash, ptr, client);
   return client;
 }
 
@@ -540,7 +546,12 @@ static SCM client_created_body(void *data) {
   return SCM_UNDEFINED;
 }
 
-static SCM client_error_handler(void *data, SCM key, SCM args) {
+static SCM null_handler(void *data, SCM key, SCM args) {
+  scm_throw(key, args);
+  return SCM_UNSPECIFIED;
+}
+
+static SCM client_created_handler(void *data, SCM key, SCM args) {
   struct listener_data *d = data;
   struct wl_client *client = d->data;
   if (scm_is_eq(key, sym_out_of_memory)) {
@@ -552,14 +563,15 @@ static SCM client_error_handler(void *data, SCM key, SCM args) {
     wl_client_post_implementation_error(client, "%s", str);
     free(str);
   }
-  scm_throw(key, args);
+  SCM stack = scm_make_stack(SCM_BOOL_T, scm_list_1(scm_from_uint(2)));
+  SCM port = scm_current_error_port();
+  scm_display(scm_from_utf8_string("Backtrace:\n"), port);
+  scm_display_backtrace(stack, port, SCM_BOOL_F, SCM_BOOL_F);
+  scm_display(scm_from_utf8_string(
+        "\nERROR: Caught exception during client create handler:\n"), port);
+  scm_print_exception(port, SCM_BOOL_F, key, args);
+  scm_newline(port);
   return SCM_UNDEFINED;
-}
-
-static void *scm_client_created_notify(void *data) {
-  scm_internal_catch(SCM_BOOL_T, client_created_body, data,
-      client_error_handler, data);
-  return NULL;
 }
 
 static void client_created_notify(struct wl_listener *listener,
@@ -568,7 +580,9 @@ static void client_created_notify(struct wl_listener *listener,
     wl_container_of(listener, d.listener, listener),
     data,
   };
-  scm_with_guile(scm_client_created_notify, &d);
+  scm_c_catch(SCM_BOOL_T, client_created_body, &d,
+      null_handler, NULL,
+      client_created_handler, &d);
 }
 
 #define SCM_VALIDATE_PROC_ARITY(_pos, _proc, _arity) \
@@ -578,7 +592,7 @@ static void client_created_notify(struct wl_listener *listener,
     if (!scm_is_false(_arities)) { \
       int _req = scm_to_int(SCM_CAR(_arities)); \
       int _opt = scm_to_int(SCM_CADR(_arities)); \
-      int _rest = scm_to_int(SCM_CADDR(_arities)); \
+      bool _rest = scm_to_bool(SCM_CADDR(_arities)); \
       if (SCM_UNLIKELY(_req > (_arity) || (!_rest && _req + _opt < (_arity)))) { \
         scm_error(scm_arg_type_key, \
             FUNC_NAME, "Expected procedure of arity ~a in position ~a", \
@@ -603,34 +617,21 @@ SCM_DEFINE_PUBLIC(scm_wl_display_add_client_created_listener,
 }
 #undef FUNC_NAME
 
-struct global_bind_data {
-  struct wl_client *client;
-  void *data;
-  uint32_t version;
-  uint32_t id;
-};
-
-static void *scm_global_bind_func(void *data) {
-  struct global_bind_data *d = data;
-  SCM proc = SCM_PACK_POINTER(d->data);
-  SCM client = scm_from_wl_client(d->client);
-  scm_call_3(proc, client, scm_from_uint32(d->version), scm_from_uint32(d->id));
-  return NULL;
-}
-
 static void global_bind_func(struct wl_client *client, void *data,
     uint32_t version, uint32_t id) {
-  struct global_bind_data d = { client, data, version, id };
-  scm_with_guile(scm_global_bind_func, &d);
+  SCM global = SCM_PACK_POINTER(data);
+  SCM proc = SCM_PACK_POINTER(scm_foreign_object_ref(global, 1));
+  SCM s_client = scm_from_wl_client(client);
+  scm_call_3(proc, s_client, scm_from_uint32(version), scm_from_uint32(id));
 }
 
 SCM scm_from_wl_global(struct wl_global *c_global) {
-  void *ptr = wl_global_get_user_data(c_global);
-  if (ptr != NULL)
-    return SCM_PACK_POINTER(ptr);
-  SCM global = scm_make_foreign_object_2(scm_wl_global_type, c_global, NULL);
-  wl_global_set_user_data(c_global, SCM_UNPACK_POINTER(global));
-  scm_gc_protect_object(global);
+  SCM ptr = scm_from_pointer(c_global, NULL);
+  SCM global = scm_hash_ref(object_hash, ptr, SCM_BOOL_F);
+  if (!scm_is_false(global))
+    return global;
+  global = scm_make_foreign_object_2(scm_wl_global_type, c_global, NULL);
+  scm_hash_set_x(object_hash, ptr, global);
   return global;
 }
 
@@ -638,8 +639,7 @@ SCM scm_from_wl_global(struct wl_global *c_global) {
 SCM_DEFINE_PUBLIC(scm_wl_global_create, "wl-global-create", 5, 0, 0,
     (SCM global, SCM display, SCM interface, SCM version, SCM proc),
     "") {
-  SCM_ASSERT_TYPE(SCM_IS_A_P(global, scm_wl_global_type),
-      global, SCM_ARG1, FUNC_NAME, "<wl-global>");
+  SCM_VALIDATE_NULL_TYPE(scm_wl_global_type, "<wl-global>", SCM_ARG1, global);
   struct wl_display *c_display;
   SCM_VALIDATE_WL_DISPLAY_COPY(SCM_ARG2, display, c_display);
   struct wl_interface *c_interface;
@@ -647,15 +647,13 @@ SCM_DEFINE_PUBLIC(scm_wl_global_create, "wl-global-create", 5, 0, 0,
   int c_version;
   SCM_VALIDATE_INT_COPY(SCM_ARG4, version, c_version);
   SCM_VALIDATE_PROC_ARITY(SCM_ARG5, proc, 3);
-  void *bind = SCM_UNPACK_POINTER(proc);
   struct wl_global *c_global = wl_global_create(c_display, c_interface,
-      c_version, bind, global_bind_func);
+      c_version, SCM_UNPACK_POINTER(global), global_bind_func);
   if (!c_global)
     scm_syserror(FUNC_NAME);
   scm_foreign_object_set_x(global, 0, c_global);
-  scm_foreign_object_set_x(global, 1, bind);
-  wl_global_set_user_data(c_global, SCM_UNPACK_POINTER(global));
-  scm_gc_protect_object(global);
+  foreign_set_protected(global, 1, proc);
+  scm_hash_set_x(object_hash, scm_from_pointer(c_global, NULL), global);
   return global;
 }
 #undef FUNC_NAME
@@ -677,36 +675,20 @@ SCM_DEFINE_PUBLIC(scm_wl_global_destroy, "wl-global-destroy", 1, 0, 0,
     "") {
   struct wl_global *c_global;
   SCM_VALIDATE_WL_GLOBAL_COPY(SCM_ARG1, global, c_global);
-  wl_global_set_user_data(c_global, NULL);
+  scm_hash_remove_x(object_hash, scm_from_pointer(c_global, NULL));
   wl_global_destroy(c_global);
   scm_foreign_object_set_x(global, 0, NULL);
-  scm_foreign_object_set_x(global, 1, NULL);
-  scm_gc_unprotect_object(global);
+  foreign_set_protected(global, 1, SCM_BOOL_F);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
-struct display_global_filter_data {
-  const struct wl_client *client;
-  const struct wl_global *global;
-  void *data;
-  bool ret;
-};
-
-static void *scm_display_global_filter(void *data) {
-  struct display_global_filter_data *d = data;
-  SCM proc = SCM_PACK_POINTER(d->data);
-  SCM client = scm_from_wl_client((struct wl_client *) d->client);
-  SCM global = scm_from_wl_global((struct wl_global *) d->global);
-  d->ret = scm_is_true(scm_call_2(proc, client, global));
-  return NULL;
-}
-
 static bool display_global_filter(const struct wl_client *client,
     const struct wl_global *global, void *data) {
-  struct display_global_filter_data d = { client, global, data, false };
-  scm_with_guile(scm_display_global_filter, &d);
-  return d.ret;
+  SCM proc = SCM_PACK_POINTER(data);
+  SCM s_client = scm_from_wl_client((struct wl_client *) client);
+  SCM s_global = scm_from_wl_global((struct wl_global *) global);
+  return scm_is_eq(scm_call_2(proc, s_client, s_global), SCM_BOOL_T);
 }
 
 #define FUNC_NAME s_scm_wl_display_set_global_filter
@@ -737,17 +719,20 @@ SCM_DEFINE_PUBLIC(scm_wl_global_get_interface,
 #undef FUNC_NAME
 
 #define FUNC_NAME s_scm_wl_client_create
-SCM_DEFINE_PUBLIC(scm_wl_client_create, "wl-client-create", 2, 0, 0,
-    (SCM display, SCM fd),
+SCM_DEFINE_PUBLIC(scm_wl_client_create, "wl-client-create", 3, 0, 0,
+    (SCM client, SCM display, SCM fd),
     "") {
+  SCM_VALIDATE_NULL_TYPE( scm_wl_client_type, "<wl-client>", SCM_ARG1, client);
   struct wl_display *c_display;
-  SCM_VALIDATE_WL_DISPLAY_COPY(SCM_ARG1, display, c_display);
+  SCM_VALIDATE_WL_DISPLAY_COPY(SCM_ARG2, display, c_display);
   int c_fd;
-  SCM_VALIDATE_INT_COPY(SCM_ARG2, fd, c_fd);
+  SCM_VALIDATE_INT_COPY(SCM_ARG3, fd, c_fd);
   struct wl_client *c_client = wl_client_create(c_display, c_fd);
   if (!c_client)
     scm_syserror(FUNC_NAME);
-  return scm_from_wl_client(c_client);
+  scm_foreign_object_set_x(client, 0, c_client);
+  scm_hash_set_x(object_hash, scm_from_pointer(c_client, NULL), client);
+  return client;
 }
 #undef FUNC_NAME
 
@@ -834,13 +819,13 @@ SCM_DEFINE_PUBLIC(scm_wl_client_add_destroy_listener,
 #undef FUNC_NAME
 
 SCM scm_from_wl_resource(struct wl_resource *c_resource) {
-  void *ptr = wl_resource_get_user_data(c_resource);
-  if (ptr != NULL)
-    return SCM_PACK_POINTER(ptr);
-  SCM resource
+  SCM ptr = scm_from_pointer(c_resource, NULL);
+  SCM resource = scm_hash_ref(object_hash, ptr, SCM_BOOL_F);
+  if (!scm_is_false(resource))
+    return resource;
+  resource
     = scm_make_foreign_object_3(scm_wl_resource_type, c_resource, NULL, NULL);
-  wl_resource_set_user_data(c_resource, SCM_UNPACK_POINTER(resource));
-  scm_gc_protect_object(resource);
+  scm_hash_set_x(object_hash, ptr, resource);
   return resource;
 }
 
@@ -859,11 +844,34 @@ SCM_DEFINE_PUBLIC(scm_wl_client_get_object, "wl-client-get-object", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-static void *scm_resource_created_notify(void *data) {
+static SCM resource_created_body(void *data) {
   struct listener_data *d = data;
   SCM resource = scm_from_wl_resource(d->data);
   scm_call_1(d->listener->proc, resource);
-  return NULL;
+  return SCM_UNDEFINED;
+}
+
+static SCM resource_created_handler(void *data, SCM key, SCM args) {
+  struct listener_data *d = data;
+  struct wl_resource *resource = d->data;
+  if (scm_is_eq(key, sym_out_of_memory)) {
+    wl_resource_post_no_memory(resource);
+  } else {
+    SCM port = scm_open_output_string();
+    scm_print_exception(port, SCM_BOOL_F, key, args);
+    char *str = scm_to_utf8_string(scm_get_output_string(port));
+    wl_resource_post_error(resource, -1, "%s", str);
+    free(str);
+  }
+  SCM stack = scm_make_stack(SCM_BOOL_T, scm_list_1(scm_from_uint(2)));
+  SCM port = scm_current_error_port();
+  scm_display(scm_from_utf8_string("Backtrace:\n"), port);
+  scm_display_backtrace(stack, port, SCM_BOOL_F, SCM_BOOL_F);
+  scm_display(scm_from_utf8_string(
+        "\nERROR: Caught exception during resource create handler:\n"), port);
+  scm_print_exception(port, SCM_BOOL_F, key, args);
+  scm_newline(port);
+  return SCM_UNDEFINED;
 }
 
 static void resource_created_notify(struct wl_listener *listener,
@@ -872,7 +880,9 @@ static void resource_created_notify(struct wl_listener *listener,
     wl_container_of(listener, d.listener, listener),
     data,
   };
-  scm_with_guile(scm_resource_created_notify, &d);
+  scm_c_catch(SCM_BOOL_T, resource_created_body, &d,
+      null_handler, NULL,
+      resource_created_handler, &d);
 }
 
 #define FUNC_NAME s_scm_wl_client_add_resource_created_listener
@@ -973,15 +983,32 @@ SCM_DEFINE_PUBLIC(scm_wl_resource_queue_event,
 }
 #undef FUNC_NAME
 
+static SCM scm_from_wl_display(struct wl_display *c_display) {
+  SCM ptr = scm_from_pointer(c_display, NULL);
+  SCM display = scm_hash_ref(object_hash, ptr, SCM_BOOL_F);
+  if (!scm_is_false(display))
+    return display;
+  display = scm_make_foreign_object_2(scm_wl_display_type, c_display, NULL);
+  scm_hash_set_x(object_hash, ptr, display);
+  return display;
+}
+
+#define FUNC_NAME s_scm_wl_client_get_display
+SCM_DEFINE_PUBLIC(scm_wl_client_get_display, "wl-client-get-display", 1, 0, 0,
+    (SCM client),
+    "") {
+  struct wl_client *c_client;
+  SCM_VALIDATE_WL_CLIENT_COPY(SCM_ARG1, client, c_client);
+  return scm_from_wl_display(wl_client_get_display(c_client));
+}
+#undef FUNC_NAME
+
 #define FUNC_NAME s_scm_wl_resource_create
 SCM_DEFINE_PUBLIC(scm_wl_resource_create, "wl-resource-create", 5, 0, 0,
     (SCM resource, SCM client, SCM interface, SCM version, SCM id),
     "") {
-  SCM_ASSERT_TYPE(SCM_IS_A_P(resource, scm_wl_resource_type),
-      resource, SCM_ARG1, FUNC_NAME, "<wl-resource>");
-  struct wl_resource *c_resource = scm_foreign_object_ref(resource, 0);
-  SCM_ASSERT_TYPE(c_resource == NULL, resource, SCM_ARG1, FUNC_NAME,
-      "null <wl-resource>");
+  SCM_VALIDATE_NULL_TYPE(
+      scm_wl_resource_type, "<wl-resource>", SCM_ARG1, resource);
   struct wl_client *c_client;
   SCM_VALIDATE_WL_CLIENT_COPY(SCM_ARG2, client, c_client);
   struct wl_interface *c_interface;
@@ -990,8 +1017,10 @@ SCM_DEFINE_PUBLIC(scm_wl_resource_create, "wl-resource-create", 5, 0, 0,
   SCM_VALIDATE_INT_COPY(SCM_ARG4, version, c_version);
   uint32_t c_id;
   SCM_VALIDATE_UINT_COPY(SCM_ARG5, id, c_id);
-  c_resource = wl_resource_create(c_client, c_interface, c_version, c_id);
+  struct wl_resource *c_resource
+    = wl_resource_create(c_client, c_interface, c_version, c_id);
   scm_foreign_object_set_x(resource, 0, c_resource);
+  scm_hash_set_x(object_hash, scm_from_pointer(c_resource, NULL), resource);
   return resource;
 }
 #undef FUNC_NAME
@@ -1014,7 +1043,7 @@ static SCM resource_dispatch_body(void *data) {
 
   scm_dynwind_begin(0);
   long argc = scm_i_signature_arg_count(d->message->signature);
-  SCM *argv = scm_i_unpack_wl_arguments(d->message, argc, d->args, false);
+  SCM *argv = scm_i_unpack_wl_arguments(d->message, argc, d->args, true);
   scm_call_n(proc, argv, argc);
   scm_dynwind_end();
   return SCM_UNDEFINED;
@@ -1024,6 +1053,8 @@ static SCM resource_dispatch_handler(void *data, SCM key, SCM args) {
   struct dispatch_data *d = data;
   d->ret = -1;
   struct wl_resource *resource = d->resource;
+  scm_display(key, scm_current_error_port()); scm_newline(scm_current_error_port());
+  scm_display(args, scm_current_error_port()); scm_newline(scm_current_error_port());
   if (scm_is_eq(key, sym_out_of_memory)) {
     wl_resource_post_no_memory(resource);
   } else {
@@ -1033,34 +1064,36 @@ static SCM resource_dispatch_handler(void *data, SCM key, SCM args) {
     wl_resource_post_error(resource, -1, "%s", str);
     free(str);
   }
-  scm_throw(key, args);
+  SCM stack = scm_make_stack(SCM_BOOL_T, scm_list_1(scm_from_uint(2)));
+  SCM port = scm_current_error_port();
+  scm_display(scm_from_utf8_string("Backtrace:\n"), port);
+  scm_display_backtrace(stack, port, SCM_BOOL_F, SCM_BOOL_F);
+  scm_simple_format(port, scm_from_utf8_string(
+        "\nERROR: Caught exception dispatching resource event ~a.~a:\n"),
+      scm_list_2(
+        scm_from_utf8_string(wl_resource_get_class(resource)),
+        scm_from_utf8_string(d->message->name)));
+  scm_print_exception(port, SCM_BOOL_F, key, args);
+  scm_newline(port);
   return SCM_UNDEFINED;
-}
-
-static void *scm_resource_dispatch(void *data) {
-  scm_internal_catch(SCM_BOOL_T, resource_dispatch_body, data,
-      resource_dispatch_handler, data);
-  return NULL;
 }
 
 static int resource_dispatch(const void *impl, void *resource, uint32_t opcode,
     const struct wl_message *message, union wl_argument *args) {
   struct dispatch_data data = { impl, resource, opcode, message, args, 0 };
-  scm_with_guile(scm_resource_dispatch, &data);
+  scm_c_catch(SCM_BOOL_T, resource_dispatch_body, &data,
+      null_handler, NULL,
+      resource_dispatch_handler, &data);
   return data.ret;
-}
-
-static void *scm_resource_destroy(void *data) {
-  SCM resource = SCM_PACK_POINTER(data);
-  void *c_thunk = scm_foreign_object_ref(resource, 2);
-  SCM thunk = SCM_PACK_POINTER(c_thunk);
-  scm_call_0(thunk);
-  return NULL;
 }
 
 static void resource_destroy(struct wl_resource *resource) {
   void *data = wl_resource_get_user_data(resource);
-  scm_with_guile(scm_resource_destroy, data);
+  SCM s_resource = SCM_PACK_POINTER(data);
+  void *c_thunk = scm_foreign_object_ref(s_resource, 2);
+  SCM thunk = SCM_PACK_POINTER(c_thunk);
+  if (!scm_is_false(thunk))
+    scm_call_0(thunk);
 }
 
 #define FUNC_NAME s_scm_wl_resource_set_implementation
@@ -1086,11 +1119,11 @@ SCM_DEFINE_PUBLIC(scm_wl_resource_set_implementation,
                                 scm_list_head(rest, last_index));
   void *impl = SCM_UNPACK_POINTER(array);
 
-  wl_resource_set_dispatcher(c_resource, resource_dispatch, impl, NULL,
-      resource_destroy);
+  wl_resource_set_dispatcher(c_resource, resource_dispatch, impl,
+      SCM_UNPACK_POINTER(resource), resource_destroy);
 
-  scm_foreign_object_set_x(resource, 1, array);
-  scm_foreign_object_set_x(resource, 2, destructor);
+  foreign_set_protected(resource, 1, array);
+  scm_foreign_object_set_x(resource, 2, SCM_UNPACK_POINTER(destructor));
 
   return SCM_UNSPECIFIED;
 }
@@ -1102,14 +1135,13 @@ SCM_DEFINE_PUBLIC(scm_wl_resource_destroy, "wl-resource-destroy", 1, 0, 0,
     "") {
   struct wl_resource *c_resource;
   SCM_VALIDATE_WL_RESOURCE_COPY(SCM_ARG1, resource, c_resource);
-  wl_resource_set_user_data(c_resource, NULL);
+  scm_hash_remove_x(object_hash, scm_from_pointer(c_resource, NULL));
   wl_resource_destroy(c_resource);
 
   scm_foreign_object_set_x(resource, 0, NULL);
-  scm_foreign_object_set_x(resource, 1, SCM_BOOL_F);
-  scm_foreign_object_set_x(resource, 2, SCM_BOOL_F);
+  foreign_set_protected(resource, 1, SCM_BOOL_F);
+  scm_foreign_object_set_x(resource, 2, NULL);
 
-  scm_gc_unprotect_object(resource);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -1185,6 +1217,27 @@ SCM_DEFINE_PUBLIC(scm_wl_resource_add_destroy_listener,
   SCM listener = scm_c_make_wl_listener(thunk, noarg_notify, &link);
   wl_resource_add_destroy_listener(c_resource, link);
   return listener;
+}
+#undef FUNC_NAME
+
+#define FUNC_NAME s_scm_wl_resource_cast
+SCM_DEFINE_PUBLIC(scm_wl_resource_cast, "wl-resource-cast", 2, 0, 0,
+    (SCM resource, SCM class),
+    "") {
+  struct wl_resource *c_resource;
+  SCM_VALIDATE_WL_RESOURCE_COPY(SCM_ARG1, resource, c_resource);
+  SCM_VALIDATE_WL_RESOURCE_CLASS(SCM_ARG2, class);
+
+  if (SCM_IS_A_P(resource, class))
+    return resource;
+
+  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
+  scm_i_pthread_once(&once, init_change_object_class_var);
+
+  scm_call_3(scm_variable_ref(change_object_class),
+      resource, scm_class_of(resource), class);
+  scm_hash_set_x(object_hash, scm_from_pointer(c_resource, NULL), resource);
+  return resource;
 }
 #undef FUNC_NAME
 
@@ -1334,63 +1387,37 @@ SCM_DEFINE_PUBLIC(scm_wl_display_add_shm_format,
 }
 #undef FUNC_NAME
 
-struct protocol_logger_data {
-  void *data;
-  enum wl_protocol_logger_type direction;
-  const struct wl_protocol_logger_message *message;
-};
-
-static void *do_protocol_logger(void *data) {
-  struct protocol_logger_data *d = data;
-  SCM proc = SCM_PACK_POINTER(d->data);
+static void protocol_logger(void *data,
+    enum wl_protocol_logger_type c_direction,
+    const struct wl_protocol_logger_message *message) {
+  SCM proc = SCM_PACK_POINTER(data);
   SCM direction = SCM_BOOL_F;
-  switch (d->direction) {
+  switch (c_direction) {
     case WL_PROTOCOL_LOGGER_REQUEST: direction = sym_request; break;
     case WL_PROTOCOL_LOGGER_EVENT: direction = sym_event; break;
   }
   scm_dynwind_begin(0);
-  SCM *argv = scm_i_unpack_wl_arguments(d->message->message,
-      d->message->arguments_count, d->message->arguments, false);
+  SCM *argv = scm_i_unpack_wl_arguments(message->message,
+      message->arguments_count, message->arguments, true);
   SCM args = SCM_EOL;
-  for (int i = d->message->arguments_count; i > 0; i--) {
+  for (int i = message->arguments_count; i > 0; i--) {
     args = scm_cons(argv[i], args);
   }
-  scm_call_5(proc, direction, scm_from_wl_resource(d->message->resource),
-      scm_from_int(d->message->message_opcode),
-      scm_from_utf8_string(d->message->message->name), args);
+  scm_call_5(proc, direction, scm_from_wl_resource(message->resource),
+      scm_from_int(message->message_opcode),
+      scm_from_utf8_string(message->message->name), args);
   scm_dynwind_end();
-  return NULL;
-}
-
-static void protocol_logger(void *data,
-    enum wl_protocol_logger_type direction,
-    const struct wl_protocol_logger_message *message) {
-  struct protocol_logger_data d = { data, direction, message };
-  scm_with_guile(do_protocol_logger, &d);
 }
 
 static SCM wl_server_log_port;
 
-struct log_data {
-  const char *fmt;
-  va_list args;
-};
-
-static void *do_log(void *data) {
-  struct log_data *d = data;
+static void log_to_port(const char *fmt, va_list args) {
   char *str;
-  int bytes = vasprintf(&str, d->fmt, d->args);
+  int bytes = vasprintf(&str, fmt, args);
   if (bytes == -1)
     scm_syserror("wl-log-handler-server");
   scm_puts(str, wl_server_log_port);
   free(str);
-  return NULL;
-}
-
-static void log_to_port(const char *fmt, va_list args) {
-  struct log_data data = { fmt };
-  va_copy(data.args, args);
-  scm_with_guile(do_log, &data);
 }
 
 #define FUNC_NAME s_scm_wl_set_log_port_server
@@ -1413,12 +1440,14 @@ SCM_DEFINE_PUBLIC(scm_wl_display_add_protocol_logger,
   SCM_VALIDATE_WL_DISPLAY_COPY(SCM_ARG1, display, c_display);
   SCM_VALIDATE_PROC_ARITY(SCM_ARG2, proc, 5);
   void *c_proc = SCM_UNPACK_POINTER(proc);
-  struct wl_protocol_logger *logger = wl_display_add_protocol_logger(c_display,
-      protocol_logger, c_proc);
-  if (logger == NULL)
+  struct wl_protocol_logger *c_logger
+    = wl_display_add_protocol_logger(c_display, protocol_logger, c_proc);
+  if (c_logger == NULL)
     scm_report_out_of_memory();
-  scm_gc_protect_object(proc);
-  return scm_make_foreign_object_2(scm_wl_protocol_logger_type, logger, c_proc);
+  SCM logger
+    = scm_make_foreign_object_2(scm_wl_protocol_logger_type, c_logger, NULL);
+  foreign_set_protected(logger, 1, proc);
+  return logger;
 }
 #undef FUNC_NAME
 
@@ -1436,7 +1465,22 @@ SCM_DEFINE_PUBLIC(scm_wl_protocol_logger_destroy,
 }
 #undef FUNC_NAME
 
-static void register_wayland_server_core(void *data) {
+void scm_init_wayland_server_core(void) {
+  object_hash = scm_make_weak_value_hash_table(scm_from_uint(0));
+
+#define PUBLIC_ENUM(name) \
+  do { \
+    scm_c_define(#name, scm_from_uint(name)); \
+    scm_c_export(#name, NULL); \
+  } while (0)
+
+  PUBLIC_ENUM(WL_EVENT_READABLE);
+  PUBLIC_ENUM(WL_EVENT_WRITABLE);
+  PUBLIC_ENUM(WL_EVENT_HANGUP);
+  PUBLIC_ENUM(WL_EVENT_ERROR);
+
+#undef PUBLIC_ENUM
+
   SCM class_type
     = scm_variable_ref(scm_c_public_lookup("oop goops", "<class>"));
   SCM make_class
@@ -1504,11 +1548,4 @@ static void register_wayland_server_core(void *data) {
 #ifndef SCM_MAGIC_SNARFER
 #include "guile-wayland-server.x"
 #endif
-}
-
-
-void scm_init_wayland_server(void) {
-  scm_c_define_module("wayland server core",
-      register_wayland_server_core, NULL);
-  scm_i_init_wayland_util();
 }

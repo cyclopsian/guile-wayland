@@ -2,13 +2,11 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(eval-when (expand load eval)
-  (load-extension "libguile-wayland" "scm_init_wayland_server"))
-
 (define-module (wayland server)
   #:use-module (oop goops)
   #:use-module (wayland server core)
   #:use-module (wayland server protocol)
+  #:use-module (wayland util)
       #:export (interface destroy
 
                 add-fd fd-update add-timer add-signal timer-update remove check
@@ -32,11 +30,24 @@
                 <wl-client> <wl-global> <wl-resource> <wl-listener>
                 <wl-shm-buffer> <wl-shm-pool-ref> <wl-protocol-logger>
                 <wl-resource-class>
-                initialize wl-set-log-port-server)
+
+                initialize make-instance name wl-set-log-port-server
+
+                WL_EVENT_READABLE WL_EVENT_WRITABLE
+                WL_EVENT_HANGUP   WL_EVENT_ERROR)
   #:duplicates (merge-generics))
 
-(module-use! (module-public-interface (current-module))
-             (resolve-interface '(wayland server protocol)))
+(eval-when (expand load eval)
+  ((@ (rnrs base) let*-values)
+   (((guile) (resolve-interface '(guile)))
+    ((protocol-syms) (module-map (compose car cons)
+                                 (resolve-interface
+                                   '(wayland server protocol))))
+    ((replaces re-exports) ((@ (srfi srfi-1) partition)
+                            (λ (sym) (module-bound? guile sym))
+                            protocol-syms)))
+   (module-re-export! (current-module) replaces #:replace? #t)
+   (module-re-export! (current-module) re-exports)))
 
 (define-syntax add-accessors
   (syntax-rules ()
@@ -50,13 +61,18 @@
 
 (add-accessors <wl-resource-class> interface)
 
+(define-method
+    (make-instance (class <wl-resource-class>) (resource <wl-resource>))
+  (wl-resource-cast resource class))
+
+(define-method (name (resource-class <wl-resource-class>))
+  (name (interface resource-class)))
+
 (define-method (destroy (listener <wl-listener>))
   (wl-listener-destroy listener))
 
-(define-method (initialize (loop <wl-event-loop>))
-  (let ((other (wl-event-loop-create)))
-    (slot-set! loop 'loop (slot-ref other 'loop))
-    (slot-set! other 'loop 0)))
+(define-method (initialize (loop <wl-event-loop>) args)
+  (apply wl-event-loop-create loop args))
 
 (define-method (destroy (loop <wl-event-loop>))
   (wl-event-loop-destroy loop))
@@ -97,10 +113,8 @@
 (define-method (add-destroy-listener (loop <wl-event-loop>) thunk)
   (wl-event-loop-add-destroy-listener loop thunk))
 
-(define-method (initialize (disp <wl-display-server>))
-  (let ((other (wl-display-create)))
-    (slot-set! disp 'display (slot-ref other 'display))
-    (slot-set! other 'display 0)))
+(define-method (initialize (disp <wl-display-server>) args)
+  (apply wl-display-create disp args))
 
 (define-method (destroy (disp <wl-display-server>))
   (wl-display-destroy disp))
@@ -108,18 +122,14 @@
 (define-method (get-event-loop (disp <wl-display-server>))
   (wl-display-get-event-loop disp))
 
-(define-method (add-socket (disp <wl-display-server>) . args)
-  (apply
-    (case-lambda
-      ((arg)
-       (cond
-         ((is-a? arg <string>) (wl-display-add-socket disp arg))
-         ((is-a? arg <integer>) (wl-display-add-socket-fd disp arg))
-         (else (scm-error 'wrong-type-arg "wl-display-server-initialize"
-                          "Expected string, integer or #f: ~a"
-                          (list arg) (list arg)))))
-      (() (wl-display-add-socket-auto disp)))
-    args))
+(define-method (add-socket (disp <wl-display-server>) (socket-name <string>))
+  (wl-display-add-socket disp socket-name))
+
+(define-method (add-socket (disp <wl-display-server>) (fd <integer>))
+  (wl-display-add-socket-fd disp fd))
+
+(define-method (add-socket (disp <wl-display-server>))
+  (wl-display-add-socket-auto disp))
 
 (define-method (terminate (disp <wl-display-server>))
   (wl-display-terminate disp))
@@ -147,8 +157,10 @@
 
 (define-method (initialize (global <wl-global>) args)
   (apply
-    (λ (disp interface version bind-proc)
-      (wl-global-create global disp interface version bind-proc))
+    (λ (disp cls version bind-proc)
+      (wl-global-create global disp (if (is-a? cls <wl-resource-class>)
+                                               (interface cls) cls)
+                        version bind-proc))
     args))
 
 (define-method (remove (source <wl-global>))
@@ -161,12 +173,7 @@
   (wl-global-get-interface global))
 
 (define-method (initialize (client <wl-client>) args)
-  (apply
-    (λ (disp fd)
-      (let ((other (wl-client-create disp fd)))
-        (slot-set! client 'client (slot-ref other 'client))
-        (slot-set! other 'client 0)))
-    args))
+  (apply wl-client-create client args))
 
 (define-method (get-client-list (disp <wl-display-server>))
   (wl-display-get-client-list disp))
@@ -204,6 +211,9 @@
 (define-method (get-resource-list (client <wl-client>))
   (map-resources client identity))
 
+(define-method (get-display (client <wl-client>))
+  (wl-client-get-display client))
+
 (define-method (destroy (resource <wl-resource>))
   (wl-resource-destroy resource))
 
@@ -225,8 +235,8 @@
 (define-method (add-destroy-listener (resource <wl-resource>) thunk)
   (wl-resource-add-destroy-listener resource thunk))
 
-(define-method (get-shm-buffer (resource <wl-resource>))
-  (wl-shm-buffer-get resource))
+(define-method (get-shm-buffer (buffer <wl-buffer-resource>))
+  (wl-shm-buffer-get buffer))
 
 (define-method (begin-access (buffer <wl-shm-buffer>))
   (wl-shm-buffer-begin-access buffer))

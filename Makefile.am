@@ -3,7 +3,7 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-AM_CFLAGS = $(WARN_CFLAGS) $(DEBUG_CFLAGS)
+AM_CFLAGS = $(WARN_CFLAGS) $(DEBUG_CFLAGS) -Iguile-wayland
 
 guileextension_LTLIBRARIES = libguile-wayland.la
 guileextensiondir = $(GUILE_EXTENSION)
@@ -42,11 +42,14 @@ $(DOT_X): %.x : %.c
 
 SOURCES = \
 	  wayland/client.scm \
+	  wayland/client/core.scm \
 	  wayland/client/util.scm \
 	  wayland/config.scm \
 	  wayland/cursor.scm \
 	  wayland/egl.scm \
+	  wayland/util.scm \
 	  wayland/server.scm \
+	  wayland/server/core.scm \
 	  wayland/server/util.scm
 SCANNER = wayland/scanner.scm
 PROTOS = wayland/client/protocol.scm wayland/server/protocol.scm
@@ -84,6 +87,14 @@ nobase_nodist_obj_DATA = $(GOBJECTS) $(SCANNER_GOBJECTS)
 
 pkgconfig_DATA = guile-wayland.pc
 
+TESTS = tests/server.scm tests/integration.scm
+TEST_EXTENSIONS = .scm
+SCM_LOG_COMPILER = ./env $(GUILE) -s
+check_SCRIPTS = $(TESTS:.scm=.go)
+
+$(check_SCRIPTS): %.go: %.scm
+	./env $(GUILD) compile $(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
+
 CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X)
 
-EXTRA_DIST = $(PROTOS) $(SOURCES) $(SCANNER) $(GOBJECTS) $(SCANNER_GOBJECTS)
+EXTRA_DIST = $(SOURCES) $(SCANNER) LICENSES .reuse

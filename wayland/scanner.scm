@@ -9,6 +9,7 @@
   #:use-module (ice-9 string-fun)
   #:use-module (oop goops)
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-11)
   #:use-module (srfi srfi-26)
   #:use-module (sxml match)
   #:use-module (sxml simple)
@@ -286,32 +287,14 @@
     (format-newline f)
     (format-newline f))
 
-  (let ((type-str (symbol->string type)))
-    (format-pretty f
-      `(eval-when (expand load eval)
-        (load-extension "libguile-wayland"
-                        ,(string-append "scm_init_wayland_" type-str)))))
-
-  (format-newline f)
-
   (let* ((proto-name (slot-ref protocol 'name))
          (core-proto? (equal? proto-name "wayland"))
          (mod-name (format-symbol f (if core-proto? "protocol" proto-name)))
-         (module-deps `((oop goops)
-                        (wayland ,type core)
-                        ,@(if core-proto? '() `((wayland ,type protocol)))
-                        (wayland util)
+         (module-deps `((oop goops) (wayland ,type core)
                         ,@extra-deps)))
-    (if module-prefix
-      (format-pretty f `(define-module
-                       (,@module-prefix ,mod-name)
-                       ,@(fold-right
-                           (λ (m acc) (append (list '#:use-module m) acc))
-                           '() module-deps)
-                       #:export (,@(reverse (slot-ref f 'exports))
-                                 ,@(reverse (slot-ref f 'generics)))
-                       #:re-export (initialize)))
-      (format-pretty f `(use-modules ,@module-deps))))
+    (when module-prefix
+      (format-pretty f `(define-module (,@module-prefix ,mod-name))))
+    (format-pretty f `(use-modules ,@module-deps)))
 
   (format-newline f)
 
@@ -324,22 +307,36 @@
   (for-each
     (λ (interface)
       (let ((int-name (format-interface-name f (slot-ref interface 'name))))
-        (format-pretty f `(define ,int-name (make-wl-interface)))))
+        (format-pretty f `(define ,int-name
+                            ((@@ (wayland util) make-wl-interface))))))
     (slot-ref protocol 'interfaces))
   (format-newline f))
+
+(define-method (format-protocol-footer (f <scheme-formatter>) protocol type)
+  (let*-values (((guile) (resolve-interface '(guile)))
+                ((replaces generics) (partition
+                                       (λ (sym) (module-bound? guile sym))
+                                       (reverse (slot-ref f 'generics))))
+                ((module-exports) (append (reverse (slot-ref f 'exports))
+                                          generics)))
+    (format-pretty f `(export ,@module-exports))
+    (format-pretty f `(export! ,@replaces))
+    (when (equal? type 'server)
+      (format-pretty f '(re-export initialize)))))
 
 (define-method (format-interface-header (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
          (int-name (format-interface-name f (slot-ref interface 'name)))
          (class-name (format-class-name f name type)))
     (format-pretty f
-      `(wl-interface-set ,int-name
-                         ,(slot-ref interface 'name)
-                         ,(slot-ref interface 'version)
-                         ,(cons 'list (format-messages
-                                        f (slot-ref interface 'requests)))
-                         ,(cons 'list (format-messages
-                                        f (slot-ref interface 'events)))))
+      `((@@ (wayland util) wl-interface-set)
+         ,int-name
+         ,(slot-ref interface 'name)
+         ,(slot-ref interface 'version)
+         ,(cons 'list (format-messages
+                        f (slot-ref interface 'requests)))
+         ,(cons 'list (format-messages
+                        f (slot-ref interface 'events)))))
     (format-newline f)
     (match type
       ('client
@@ -350,22 +347,13 @@
                                        #:metaclass <wl-resource-class>))))
     (format-pretty f `(slot-set! ,class-name 'interface ,int-name))
     (format-newline f)
-    (match type
-      ('client
-       (format-pretty f
-         `(define-method
-            (initialize (,name ,class-name) args)
-            (apply (lambda (proxy)
-                     (wl-proxy-move proxy ,name))
-                   args))))
-      ('server
-       (format-pretty f
-         `(define-method
-            (initialize (,name ,class-name) args)
-            (apply (lambda* (client version #:optional (id 0))
-                     (wl-resource-create ,name client ,int-name version id))
-                   args)))))
-
+    (when (equal? type 'server)
+      (format-pretty f
+        `(define-method
+           (initialize (,name ,class-name) args)
+           (apply (lambda* (client version #:optional (id 0))
+                    (wl-resource-create ,name client ,int-name version id))
+                  args))))
     (format-newline f)))
 
 (define-method (format-enum (f <scheme-formatter>) interface enum)
@@ -381,21 +369,48 @@
     (slot-ref enum 'entries))
   (format-newline f))
 
-(define-method (format-args (f <scheme-formatter>) event call)
-  (fold-right
-    (λ (arg acc)
-      (match (slot-ref arg 'type)
-             ("new_id"
-              (if (slot-ref arg 'interface)
-                  (if call (cons #f acc) acc)
-                  (append (list
-                            (if call
-                                '(wl-interface-name interface)
-                                'interface)
-                            'version) acc)))
-             (else
-               (cons (format-symbol f (slot-ref arg 'name)) acc))))
-    '() (slot-ref event 'args)))
+(define-method (format-args (f <scheme-formatter>) event mode)
+  (let ((type (if (is-a? event <wl-request>) 'server 'client)))
+    (fold-right
+      (λ (arg acc)
+        (let ((append-sym
+                (λ () (cons (format-symbol f (slot-ref arg 'name)) acc)))
+              (append-make
+                (λ () (let ((interface (slot-ref arg 'interface)))
+                           (if interface
+                             (let* ((name
+                                      (format-symbol f (slot-ref arg 'name)))
+                                    (wrap
+                                     `(,(match type ('client 'wl-proxy-cast)
+                                               ('server 'wl-resource-cast))
+                                        ,name
+                                        ,(format-class-name
+                                           f (slot-ref arg 'interface) type))))
+                               (cons
+                                 (if (equal? (slot-ref arg 'allow-null) "true")
+                                   `(if ,name ,wrap #f) wrap)
+                                 acc))
+                             (cons (format-symbol f (slot-ref arg 'name))
+                                   acc))))))
+          (match (slot-ref arg 'type)
+            ("new_id"
+             (if (slot-ref arg 'interface)
+                 (match mode
+                   ('call (if (equal? type 'client) (append-sym) (cons #f acc)))
+                   ('args (if (equal? type 'client) (append-sym) acc))
+                   ('wrap (append-make))
+                   ('wrap-args (append-sym)))
+                 (append (list
+                           (if (equal? mode 'call)
+                               '((@ (wayland util) wl-interface-name)
+                                 interface)
+                               'interface)
+                           'version) (if (equal? mode 'call) '(#f) '()) acc)))
+            ("object"
+             (match mode ('wrap (append-make))
+                         (else (append-sym))))
+            (else (append-sym)))))
+      '() (slot-ref event 'args))))
 
 (define-method (format-stub (f <scheme-formatter>) interface event index)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
@@ -424,36 +439,48 @@
                    '(interface version))
                '()))
          (func-call `(,send-func ,name ,int-name ,index ,@ret-args
-                                 ,@(format-args f event #t))))
+                                 ,@(format-args f event 'call))))
     (format-pretty f
       `(define-method
-         (,event-name (,name ,class-name) ,@(format-args f event #f))
-         ,(if ret
-              (if ret-int
-                  `(make ,(format-class-name f ret-int type) ,func-call)
-                  `(make interface ,func-call))
+         (,event-name (,name ,class-name) ,@(format-args f event 'args))
+         ,(if (and ret ret-int (equal? type 'client))
+              `(wl-proxy-cast ,func-call ,(format-class-name f ret-int type))
               func-call)))))
 
 (define-method (format-dispatcher (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
          (int-name (format-interface-name f (slot-ref interface 'name)))
          (class-name (format-class-name f name type))
-         (events (map (λ (e) (format-symbol f (slot-ref e 'name)))
-                      (slot-ref interface (match type
-                                            ('client 'events)
-                                            ('server 'requests))))))
+         (events (slot-ref interface (match type ('client 'events)
+                                                 ('server 'requests))))
+         (event-names (map (λ (e) (format-symbol f (slot-ref e 'name))) events))
+         (wrapped-types (match type ('client '("new_id" "object"))
+                                    ('server '("object"))))
+         (event-calls (map (λ (e)
+                             (if (any (λ (a) (member (slot-ref a 'type)
+                                                     wrapped-types))
+                                      (slot-ref e 'args))
+                                 (let ((sym (format-symbol
+                                              f (slot-ref e 'name))))
+                                   `(if ,sym (lambda
+                                               ,(format-args f e 'wrap-args)
+                                               (,sym ,@(format-args f e 'wrap)))
+                                        #f))
+                                 (format-symbol f (slot-ref e 'name))))
+                           events)))
     (when (equal? type 'server)
-      (append! events '(destructor)))
+      (append! event-names '(destructor))
+      (append! event-calls '(destructor)))
 
     (format-pretty f
       `(define-method
          (,(match type ('client 'add-listener) ('server 'set-implementation))
            (,name ,class-name) . args)
          (apply
-           (lambda* (#:key ,@events)
+           (lambda* (#:key ,@event-names)
              (,(match type ('client 'wl-proxy-add-listener)
                            ('server 'wl-resource-set-implementation))
-               ,name ,int-name ,@events))
+               ,name ,int-name ,@event-calls))
            args)))))
 
 (define-method (format-destructor (f <scheme-formatter>) interface type)
@@ -586,6 +613,8 @@ file in a call to @code{use-module}."
 
        (format-newline f))
     (slot-ref protocol 'interfaces))
+
+  (format-protocol-footer f protocol type)
 
   (unless output-port (flush f)))
 

@@ -20,7 +20,7 @@
   (focused #:accessor focused)
   (seats   #:accessor seats #:init-value '()))
 
-(define-method (initialize (state <client-state>))
+(define-method (initialize (state <client-state>) args)
   (set! (display state) (make <wl-display>))
   (set! (store state)
     (listen-interfaces

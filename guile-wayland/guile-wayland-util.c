@@ -43,7 +43,7 @@ SCM_DEFINE_PUBLIC(scm_mmap, "mmap", 4, 1, 0,
   SCM_VALIDATE_INT_COPY(SCM_ARG2, prot, c_prot);
   SCM_VALIDATE_INT_COPY(SCM_ARG3, flags, c_flags);
   SCM_VALIDATE_INT_COPY(SCM_ARG4, fd, c_fd);
-  if (!scm_is_false(offset))
+  if (!SCM_UNBNDP(offset) && !scm_is_false(offset))
     SCM_VALIDATE_LONG_COPY(SCM_ARG5, offset, c_offset);
 
   void *addr = mmap(NULL, c_length, c_prot, c_flags, c_fd, c_offset);
@@ -288,6 +288,8 @@ union wl_argument *scm_i_pack_wl_arguments(long pos, const char *subr,
 
 SCM *scm_i_unpack_wl_arguments(const struct wl_message *message,
     long argc, const union wl_argument *args, bool server) {
+  if (!argc)
+    return NULL;
   SCM *argv = scm_calloc(argc * sizeof(SCM));
   scm_dynwind_free(argv);
   long i = 0;
@@ -314,14 +316,21 @@ SCM *scm_i_unpack_wl_arguments(const struct wl_message *message,
       }
       break;
     case 'o':
-    case 'n':
       if (args[i].o) {
         if (server) {
-          struct wl_resource *resource = (struct wl_resource *) args[i].o;
-          argv[i] = scm_from_uint32(wl_resource_get_id(resource));
+          argv[i] = scm_from_wl_resource((struct wl_resource *) args[i].o);
         } else {
           argv[i] = scm_from_wl_proxy((struct wl_proxy *) args[i].o);
         }
+      } else {
+        argv[i] = SCM_BOOL_F;
+      }
+      break;
+    case 'n':
+      if (server) {
+        argv[i] = scm_from_uint32(args[i].n);
+      } else if (args[i].o) {
+        argv[i] = scm_from_wl_proxy((struct wl_proxy *) args[i].o);
       } else {
         argv[i] = SCM_BOOL_F;
       }
@@ -381,7 +390,7 @@ void scm_i_validate_dispatch_list(long pos, const char *subr,
       if (!scm_is_false(arities)) {
         int req = scm_to_int(SCM_CAR(arities));
         int opt = scm_to_int(SCM_CADR(arities));
-        int restc = scm_to_int(SCM_CADDR(arities));
+        bool restc = scm_to_bool(SCM_CADDR(arities));
         if (SCM_UNLIKELY(req > argc || (!restc && req + opt < argc))) {
           scm_error(scm_arg_type_key,
               subr,
@@ -418,7 +427,7 @@ SCM_DEFINE_PUBLIC(scm_wl_interface_name, "wl-interface-name", 1, 0, 0,
     scm_c_export(#name, NULL); \
   } while (0)
 
-static void register_wayland_util(void *data) {
+void scm_init_wayland_util(void) {
   static const char s_scm_wl_interface[] = "<wl-interface>";
   scm_wl_interface_type = scm_make_foreign_object_type(
       scm_from_utf8_symbol(s_scm_wl_interface),
@@ -440,7 +449,3 @@ static void register_wayland_util(void *data) {
 #endif
 }
 
-void scm_i_init_wayland_util(void) {
-  scm_c_define_module("wayland util",
-      register_wayland_util, NULL);
-}

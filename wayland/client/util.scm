@@ -2,9 +2,6 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(eval-when (expand load eval)
-  (load-extension "libguile-wayland" "scm_init_wayland_client"))
-
 (define-module (wayland client util)
   #:use-module (ice-9 optargs)
   #:use-module (oop goops)
@@ -12,11 +9,12 @@
   #:use-module (wayland client)
   #:use-module (wayland util)
   #:export (create-argb-buffer <wl-mapped-buffer>
-            wl-buffer fdes data stride size width height unmap destroy
+            wl-buffer fdes data stride size width height unmap
 
             listen-interfaces <wl-object-store>
             get get-keywords wl-registry objects ids remove)
-  #:re-export (initialize))
+  #:re-export (initialize destroy)
+  #:duplicates (merge-generics replace))
 
 (define-class <wl-mapped-buffer> ()
   (wl-buffer #:accessor wl-buffer #:init-keyword #:wl-buffer)
@@ -56,9 +54,9 @@
   (objects     #:accessor objects #:init-thunk make-hash-table)
   (ids         #:accessor ids     #:init-thunk make-hash-table))
 
-(define-method (initialize (store <wl-object-store>) . args)
+(define-method (initialize (store <wl-object-store>) args)
   (apply (λ (disp)
-           (wl-registry store (get-registry disp))) args))
+           (set! (wl-registry store) (get-registry disp))) args))
 
 (define-method (get (store <wl-object-store>) (cls <wl-proxy-class>))
   (hashq-ref (objects store) cls))
