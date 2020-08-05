@@ -110,7 +110,7 @@ static int fd_func(int fd, uint32_t mask, void *data) {
   int ret = 0;
   SCM proc = SCM_PACK_POINTER(data);
   SCM result;
-  if (scm_thunk_p(proc)) {
+  if (scm_is_true(scm_thunk_p(proc))) {
     result = scm_call_0(proc);
   } else {
     result = scm_call_1(proc, scm_from_uint32(mask));

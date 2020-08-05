@@ -15,6 +15,8 @@
   (wl-scanner-load
     (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml")))
 
+(epoxy-require-egl-extension "EGL_EXT_platform_wayland")
+
 (let* ((disp (make <wl-display>))
        (registry (get-registry disp))
        (seat #f)
