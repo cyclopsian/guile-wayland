@@ -2,7 +2,7 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(define-module (wayland examples egl-client)
+(define-module (examples egl-client)
   #:use-module (epoxy egl)
   #:use-module (epoxy gles2)
   #:use-module (ice-9 match)
@@ -11,8 +11,9 @@
   #:use-module (wayland scanner)
   #:duplicates (merge-generics))
 
-(wl-scanner-load
-  (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml"))
+(eval-when (expand load eval)
+  (wl-scanner-load
+    (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml")))
 
 (let* ((disp (make <wl-display>))
        (registry (get-registry disp))
@@ -25,7 +26,7 @@
     (λ (id interface version)
       (cond
         ((equal? interface (name <wl-seat>))
-         (set! seat (bind registry name <wl-seat> 1))
+         (set! seat (bind registry id <wl-seat> 1))
          (add-listener seat
            #:capabilities
            (λ (capabilities)
@@ -37,7 +38,9 @@
         ((equal? interface (name <wl-compositor>))
          (set! compositor (bind registry id <wl-compositor> 4)))
         ((equal? interface (name <xdg-wm-base>))
-         (set! xdg-wm-base (bind registry id <xdg-wm-base> 1))))))
+         (set! xdg-wm-base (bind registry id <xdg-wm-base> 1))
+         (add-listener xdg-wm-base
+                       #:ping (λ (serial) (pong xdg-wm-base serial)))))))
   (dispatch disp)
   (roundtrip disp)
   (unless compositor
@@ -46,15 +49,16 @@
     (error "xdg_wm_base interface not found"))
   (match-let*
     ((egl-display (egl-get-platform-display EGL_PLATFORM_WAYLAND_EXT
-                                            (slot-ref disp 'proxy))))
-    ((config-attribs '(EGL_SURFACE_TYPE      EGL_WINDOW_BIT
-                       EGL_RED_SIZE          8
-                       EGL_GREEN_SIZE        8
-                       EGL_BLUE_SIZE         8
-                       EGL_ALPHA_SIZE        0
-                       EGL_RENDERABLE_TYPE   EGL_OPENGL_ES2_BIT
-                       EGL_NATIVE_RENDERABLE EGL_TRUE))
-     (ctx-attribs    '(EGL_CONTEXT_CLIENT_VERSION 2))
+                                            (slot-ref disp 'proxy)))
+     (config-attribs (list
+                      EGL_SURFACE_TYPE      EGL_WINDOW_BIT
+                      EGL_RED_SIZE          8
+                      EGL_GREEN_SIZE        8
+                      EGL_BLUE_SIZE         8
+                      EGL_ALPHA_SIZE        0
+                      EGL_RENDERABLE_TYPE   EGL_OPENGL_ES2_BIT
+                      EGL_NATIVE_RENDERABLE EGL_TRUE))
+     (ctx-attribs (list EGL_CONTEXT_CLIENT_VERSION 2))
      ((config) (begin
                  (egl-initialize egl-display)
                  (egl-choose-config egl-display config-attribs 1)))
@@ -62,10 +66,11 @@
      (surface (create-surface compositor))
      (xdg-surface (get-xdg-surface xdg-wm-base surface))
      (xdg-toplevel (get-toplevel xdg-surface))
-     (egl-window (make-wl-egl-window surface 128 128))
+     (egl-window (make <wl-egl-window> surface 128 128))
      (egl-surface (egl-create-window-surface
                     egl-display config (slot-ref egl-window 'egl-window)))
-     (running #t))
+     (running #t)
+     (render #f))
     (set! focused xdg-toplevel)
     (add-listener xdg-surface
       #:configure (λ (serial)
@@ -77,14 +82,17 @@
     (roundtrip disp)
     (egl-make-current egl-display egl-surface egl-surface context)
     (egl-swap-interval egl-display 0)
-    (define (render)
-      (gl-clear-color 0 0 1 1)
-      (gl-clear GL_COLOR_BUFFER_BIT)
-      (let ((callback (frame surface)))
-        (add-listener callback
-          #:done (λ (time) (destroy callback) (render))))
-      (egl-swap-buffers egl-display egl-surface))
-    (render)
+    (set! render
+      (λ (time)
+        (gl-clear-color 0 (/ (modulo time 1000) 1000) 1 1)
+        (gl-clear GL_COLOR_BUFFER_BIT)
+        (let ((callback (frame surface)))
+          (add-listener callback
+                        #:done (λ (time)
+                                 (destroy callback)
+                                 (render time))))
+        (egl-swap-buffers egl-display egl-surface)))
+    (render 0)
     (while running (dispatch disp))
     (destroy xdg-toplevel)
     (destroy xdg-surface)

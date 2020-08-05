@@ -204,7 +204,7 @@
 (define-method (flush (f <scheme-formatter>))
   (let ((exprs (slot-ref f 'expressions)))
     (slot-set! f 'expressions '())
-    exprs))
+    (reverse exprs)))
 
 ;;; <scheme-text-formatter>
 ;;; Formats code as a string to an output port
@@ -281,7 +281,8 @@
     events))
 
 (define-method (format-protocol-header
-                 (f <scheme-formatter>) type protocol module-prefix extra-deps)
+                 (f <scheme-formatter>)
+                 type protocol module-prefix extra-deps export?)
   (when (slot-bound? protocol 'copyright)
     (format-text f (slot-ref protocol 'copyright) ";;; ")
     (format-newline f)
@@ -290,7 +291,9 @@
   (let* ((proto-name (slot-ref protocol 'name))
          (core-proto? (equal? proto-name "wayland"))
          (mod-name (format-symbol f (if core-proto? "protocol" proto-name)))
-         (module-deps `((oop goops) (wayland ,type core)
+         (module-deps `((oop goops)
+                        (wayland ,type core)
+                        ,@(if core-proto? '() `((wayland ,type protocol)))
                         ,@extra-deps)))
     (when module-prefix
       (format-pretty f `(define-module (,@module-prefix ,mod-name))))
@@ -298,11 +301,12 @@
 
   (format-newline f)
 
-  (for-each
-    (λ (generic)
-       (format-pretty f `(define-generic ,generic)))
-    (slot-ref f 'generics))
-  (format-newline f)
+  (when export?
+    (for-each
+      (λ (generic)
+        (format-pretty f `(define-generic ,generic)))
+      (slot-ref f 'generics))
+    (format-newline f))
 
   (for-each
     (λ (interface)
@@ -312,17 +316,21 @@
     (slot-ref protocol 'interfaces))
   (format-newline f))
 
-(define-method (format-protocol-footer (f <scheme-formatter>) protocol type)
+(define-method
+    (format-protocol-footer (f <scheme-formatter>) protocol type export?)
   (let*-values (((guile) (resolve-interface '(guile)))
                 ((replaces generics) (partition
                                        (λ (sym) (module-bound? guile sym))
                                        (reverse (slot-ref f 'generics))))
                 ((module-exports) (append (reverse (slot-ref f 'exports))
                                           generics)))
-    (format-pretty f `(export ,@module-exports))
-    (format-pretty f `(export! ,@replaces))
-    (when (equal? type 'server)
-      (format-pretty f '(re-export initialize)))))
+    (when export?
+      (unless (null? module-exports)
+        (format-pretty f `(export ,@module-exports)))
+      (unless (null? replaces)
+        (format-pretty f `(export! ,@replaces)))
+      (when (equal? type 'server)
+        (format-pretty f '(re-export initialize))))))
 
 (define-method (format-interface-header (f <scheme-formatter>) interface type)
   (let* ((name (format-symbol f (slot-ref interface 'name)))
@@ -501,7 +509,8 @@
                            input-port
                            (extra-deps '())
                            module-prefix
-                           output-text?)
+                           output-text?
+                           (export? #t))
   "Takes a wayland XML file from @var{input-port} and outputs Scheme code
 to @var{output-port}. If @var{input-port} is omitted, it defaults to the
 current input port. If @var{output-port} is omitted or set to @code{#f},
@@ -526,7 +535,10 @@ If omitted, no module will be defined.
 of the file. This is useful if your protocol depends on other custom protocols.
 If a module was defined with @var{module-prefix}, these will be included as
 @code{#:use-module} keywords. Otherwise, they will appear at the top of the
-file in a call to @code{use-module}."
+file in a call to @code{use-module}.
+
+@var{export?} can be set to @code{#f} to disable symbol exporting, for use
+when including the file directly in another module."
   (unless (member type '(client server))
     (error "type must be one of [client|server]"))
   (when (eq? output-port #t)
@@ -573,7 +585,7 @@ file in a call to @code{use-module}."
         (add-generic f 'destroy)))
     (slot-ref protocol 'interfaces))
 
-  (format-protocol-header f type protocol module-prefix extra-deps)
+  (format-protocol-header f type protocol module-prefix extra-deps export?)
   (format-newline f)
 
   (for-each
@@ -614,17 +626,21 @@ file in a call to @code{use-module}."
        (format-newline f))
     (slot-ref protocol 'interfaces))
 
-  (format-protocol-footer f protocol type)
+  (format-protocol-footer f protocol type export?)
 
   (unless output-port (flush f)))
 
-(define* (wl-scanner-load filename #:key (type 'client) (extra-deps '()))
+(define* (wl-scanner-load filename #:key (type 'client)
+                                         (extra-deps '())
+                                         (export? #f))
   "Loads a protocol from @var{filename} and evaluates all its definitions in
-the current module. @var{type} and @code{extra-deps} are handled the same as
-in @code{wl-scanner}."
+the current module. @var{type}, @var{extra-deps} and @var{export?} are handled
+the same as in @code{wl-scanner}."
   (primitive-eval
     `(begin ,@(with-input-from-file filename
-                (wl-scanner #:type type #:extra-deps extra-deps)))))
+                (λ () (wl-scanner #:type type
+                                  #:extra-deps extra-deps
+                                  #:export? export?))))))
 
 (define usage-text "\
 [OPTIONS] [client|server] [input_file output_file]
@@ -684,6 +700,7 @@ Supported options:
                 #:output-port   outport
                 #:input-port    inport
                 #:output-text?  #t
+                #:export?       #t
                 #:extra-deps    (read-string-vals extra-deps)
                 #:module-prefix (and=> module-prefix
                                        (λ (p) (map string->symbol

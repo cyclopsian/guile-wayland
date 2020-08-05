@@ -70,9 +70,6 @@ GUILE_WARNINGS = -Warity-mismatch \
 $(GOBJECTS): %.go: %.scm $(guileextension_LTLIBRARIES)
 	./env $(GUILD) compile $(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
 
-$(SCANNER_GOBJECTS): %.go: %.scm
-	./env $(GUILD) compile $(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
-
 wayland/client/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml \
 		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
 	./env ./wayland-scanner-guile -m "wayland client" client "$<" "$@"
@@ -83,9 +80,6 @@ wayland/server/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml \
 
 bin_SCRIPTS = wayland-scanner-guile
 
-nobase_mod_DATA = $(PROTOS) $(SOURCES) $(NOCOMP_SOURCES)
-nobase_nodist_obj_DATA = $(GOBJECTS) $(SCANNER_GOBJECTS)
-
 pkgconfig_DATA = guile-wayland.pc
 
 TESTS = tests/server.scm tests/integration.scm
@@ -93,9 +87,17 @@ TEST_EXTENSIONS = .scm
 SCM_LOG_COMPILER = ./env $(GUILE) -s
 check_SCRIPTS = $(TESTS:.scm=.go)
 
-$(check_SCRIPTS): %.go: %.scm
+EXAMPLES = examples/cairo-client.scm examples/egl-client.scm
+EXAMPLE_GOBJECTS = $(EXAMPLES:.scm=.go)
+
+$(check_SCRIPTS) $(EXAMPLE_GOBJECTS) $(SCANNER_GOBJECTS): %.go: %.scm
 	./env $(GUILD) compile $(GUILE_TARGET) $(GUILE_WARNINGS) -o "$@" "$<"
 
-CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X)
+nobase_mod_DATA = $(PROTOS) $(SOURCES) $(NOCOMP_SOURCES)
+nobase_nodist_obj_DATA = $(GOBJECTS) $(SCANNER_GOBJECTS) \
+			 $(check_SCRIPTS) $(EXAMPLE_GOBJECTS)
+
+CLEANFILES = $(GOBJECTS) $(SCANNER_GOBJECTS) $(BUILT_SOURCES) $(DOT_X) \
+	     $(check_SCRIPTS) $(EXAMPLE_GOBJECTS)
 
 EXTRA_DIST = $(SOURCES) $(SCANNER) $(TESTS) LICENSES .reuse

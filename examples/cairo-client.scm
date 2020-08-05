@@ -2,7 +2,7 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(define-module (wayland examples cairo-client)
+(define-module (examples cairo-client)
   #:use-module (cairo)
   #:use-module (oop goops)
   #:use-module (srfi srfi-1)
@@ -11,8 +11,9 @@
   #:use-module (wayland scanner)
   #:duplicates (merge-generics))
 
-(wl-scanner-load
-  (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml"))
+(eval-when (expand load eval)
+  (wl-scanner-load
+    (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml")))
 
 (define-class <client-state> ()
   (display #:accessor display)
@@ -30,7 +31,14 @@
             #:remove (λ (seat) (destroy-seat state seat)))
       <wl-shm>
       <wl-compositor>
-      <xdg-wm-base>)))
+      (list <xdg-wm-base>
+            #:after (λ (wm)
+                      (add-listener
+                        wm #:ping (λ (serial) (pong wm serial))))))))
+
+(define-method (destroy (state <client-state>))
+  (destroy (store state))
+  (destroy (display state)))
 
 (define-class <client-seat> ()
   (wl-seat  #:accessor wl-seat #:init-keyword #:wl-seat)
@@ -99,4 +107,4 @@
   (destroy xdg-surface)
   (destroy surface)
   (destroy buffer)
-  (destroy registry)))
+  (destroy state))

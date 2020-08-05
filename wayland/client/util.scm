@@ -13,7 +13,7 @@
 
             listen-interfaces <wl-object-store>
             get get-keywords wl-registry objects ids remove)
-  #:re-export (initialize destroy)
+  #:re-export (initialize destroy frame sync)
   #:duplicates (merge-generics replace))
 
 (define-class <wl-mapped-buffer> ()
@@ -56,7 +56,9 @@
 
 (define-method (initialize (store <wl-object-store>) args)
   (apply (λ (disp)
-           (set! (wl-registry store) (get-registry disp))) args))
+           (set! (wl-registry store) (get-registry disp))
+           (next-method store '()))
+         args))
 
 (define-method (get (store <wl-object-store>) (cls <wl-proxy-class>))
   (hashq-ref (objects store) cls))
@@ -115,7 +117,7 @@
                  (hashq-set! (ids store) id (cons obj (or remove noop)))
                  ((or after noop) obj)))))
          (check-required
-           (lambda* (cls #:key (required? #t) (version 1))
+           (lambda* (cls #:key (required? #t) (version 1) #:allow-other-keys)
              (when (and required? (not (hashq-ref (objects store) cls)))
                (error (format #f "~a v~a interface not found"
                               (class-name cls) version))))))
@@ -131,4 +133,16 @@
     (for-each (λ (def) (apply check-required def)) interfaces)
     store))
 
+(define-method (sync (disp <wl-display>) (proc <procedure>))
+  (let ((callback (sync disp)))
+    (add-listener callback
+                  #:done (λ (time)
+                           (destroy callback)
+                           (proc time)))))
 
+(define-method (frame (surface <wl-surface>) (proc <procedure>))
+  (let ((callback (frame surface)))
+    (add-listener callback
+                  #:done (λ (time)
+                           (destroy callback)
+                           (proc time)))))

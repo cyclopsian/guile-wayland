@@ -2,7 +2,7 @@
 ;;;; SPDX-FileCopyrightText: 2020 Jason Francis <jason@cycles.network>
 ;;;; SPDX-License-Identifier: GPL-3.0-or-later
 
-(define-module (wayland tests integration)
+(define-module (tests integration)
   #:use-module (wayland client)
   #:use-module (wayland client util)
   #:use-module (wayland server)
@@ -15,7 +15,6 @@
 
 (module-set! (resolve-module '(srfi srfi-64)) 'test-log-to-file #f)
 (test-runner-current (test-runner-create))
-;(test-runner-aux-value! (test-runner-current) (current-output-port))
 
 (define (print-buffer buffer)
   (let* ((shm-buffer (get-shm-buffer buffer))
