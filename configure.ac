@@ -6,7 +6,7 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIRS([m4])
 AC_CONFIG_SRCDIR([guile-wayland.pc.in])
 AC_USE_SYSTEM_EXTENSIONS
-AM_INIT_AUTOMAKE([gnu -Wall -Werror foreign subdir-objects])
+AM_INIT_AUTOMAKE([gnu -Wall -Werror -Wno-portability foreign subdir-objects])
 AM_SILENT_RULES([yes])
 
 PKG_INSTALLDIR
@@ -26,11 +26,11 @@ if test "$cross_compiling" != no; then
   AC_SUBST([GUILE_TARGET])
 fi
 
-PKG_CHECK_MODULES(WAYLAND_CLIENT,    wayland-client)
+PKG_CHECK_MODULES(WAYLAND_CLIENT,    wayland-client >= 1.18)
 PKG_CHECK_MODULES(WAYLAND_CURSOR,    wayland-cursor)
 PKG_CHECK_MODULES(WAYLAND_EGL,       wayland-egl)
-PKG_CHECK_MODULES(WAYLAND_SERVER,    wayland-server)
-PKG_CHECK_MODULES(WAYLAND_PROTOCOLS, wayland-protocols)
+PKG_CHECK_MODULES(WAYLAND_SERVER,    wayland-server >= 1.18)
+PKG_CHECK_MODULES(WAYLAND_PROTOCOLS, wayland-protocols >= 1.18)
 AC_SUBST(WAYLAND_CLIENT_LIBS)
 AC_SUBST(WAYLAND_CLIENT_CFLAGS)
 AC_SUBST(WAYLAND_CURSOR_LIBS)

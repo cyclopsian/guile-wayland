@@ -41,6 +41,33 @@ $(DOT_X): %.x : %.c
 	$(GUILE_SNARF) $(AM_CFLAGS) $(GUILE_CFLAGS) $(CFLAGS) $< > $@ \
 		|| { rm $@; false; }
 
+PROTO_XMLS = $(WAYLAND_PROTOCOLDIR)/stable/presentation-time/presentation-time.xml \
+	     $(WAYLAND_PROTOCOLDIR)/stable/viewporter/viewporter.xml \
+	     $(WAYLAND_PROTOCOLDIR)/stable/xdg-shell/xdg-shell.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/fullscreen-shell/fullscreen-shell-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/input-method/input-method-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/input-timestamps/input-timestamps-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/linux-explicit-synchronization/linux-explicit-synchronization-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/pointer-gestures/pointer-gestures-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/primary-selection/primary-selection-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/relative-pointer/relative-pointer-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/tablet/tablet-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/tablet/tablet-unstable-v2.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/text-input/text-input-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/text-input/text-input-unstable-v3.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-foreign/xdg-foreign-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-foreign/xdg-foreign-unstable-v2.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-output/xdg-output-unstable-v1.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-shell/xdg-shell-unstable-v5.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-shell/xdg-shell-unstable-v6.xml \
+	     $(WAYLAND_PROTOCOLDIR)/unstable/xwayland-keyboard-grab/xwayland-keyboard-grab-unstable-v1.xml
+XDG_DECORATION_XML = $(WAYLAND_PROTOCOLDIR)/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml
+vpath %.xml $(dir $(PROTO_XMLS))
+
 SOURCES = \
 	  wayland/client.scm \
 	  wayland/client/core.scm \
@@ -53,7 +80,12 @@ SOURCES = \
 	  wayland/server/core.scm \
 	  wayland/server/util.scm
 SCANNER = wayland/scanner.scm
-PROTOS = wayland/client/protocol.scm wayland/server/protocol.scm
+CLIENT_EXT_PROTOS = $(addprefix wayland/client/,$(notdir $(PROTO_XMLS:.xml=.scm)))
+SERVER_EXT_PROTOS = $(addprefix wayland/server/,$(notdir $(PROTO_XMLS:.xml=.scm)))
+PROTOS = wayland/client/protocol.scm wayland/server/protocol.scm \
+	 wayland/client/xdg-decoration-unstable-v1.scm \
+	 wayland/server/xdg-decoration-unstable-v1.scm \
+	 $(CLIENT_EXT_PROTOS) $(SERVER_EXT_PROTOS)
 
 BUILT_SOURCES = $(PROTOS) $(DOT_X)
 
@@ -77,6 +109,26 @@ wayland/client/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml \
 wayland/server/protocol.scm: $(WAYLAND_DATADIR)/wayland.xml \
 		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
 	./env ./wayland-scanner-guile -m "wayland server" server "$<" "$@"
+
+$(CLIENT_EXT_PROTOS): wayland/client/%.scm: %.xml \
+		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
+	./env ./wayland-scanner-guile -m "wayland client" client "$<" "$@"
+
+$(SERVER_EXT_PROTOS): wayland/server/%.scm: %.xml \
+		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
+	./env ./wayland-scanner-guile -m "wayland server" server "$<" "$@"
+
+wayland/client/xdg-decoration-unstable-v1.scm: $(XDG_DECORATION_XML) \
+		wayland/client/xdg-shell.scm \
+		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
+	./env ./wayland-scanner-guile -d "(wayland client xdg-shell)" \
+	  -m "wayland client" client "$<" "$@"
+
+wayland/server/xdg-decoration-unstable-v1.scm: $(XDG_DECORATION_XML) \
+		wayland/server/xdg-shell.scm \
+		wayland-scanner-guile wayland/scanner.scm wayland/scanner.go
+	./env ./wayland-scanner-guile -d "(wayland server xdg-shell)" \
+	  -m "wayland server" server "$<" "$@"
 
 bin_SCRIPTS = wayland-scanner-guile
 

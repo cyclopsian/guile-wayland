@@ -295,9 +295,12 @@
                         (wayland ,type core)
                         ,@(if core-proto? '() `((wayland ,type protocol)))
                         ,@extra-deps)))
-    (when module-prefix
-      (format-pretty f `(define-module (,@module-prefix ,mod-name))))
-    (format-pretty f `(use-modules ,@module-deps)))
+    (if module-prefix
+      (format-pretty f `(define-module (,@module-prefix ,mod-name)
+                          ,@(fold (λ (m acc) (append acc `(#:use-module ,m)))
+                                  '() module-deps)
+                          #:duplicates (merge-generics replace)))
+      (format-pretty f `(use-modules ,@module-deps))))
 
   (format-newline f)
 

@@ -8,7 +8,9 @@
 /env
 wayland-scanner-guile
 wayland/config.scm
-wayland/*/protocol.scm
+wayland/*/*.scm
+!wayland/*/core.scm
+!wayland/*/util.scm
 
 # http://www.gnu.org/software/automake
 
