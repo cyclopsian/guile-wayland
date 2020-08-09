@@ -65,6 +65,7 @@ PROTO_XMLS = $(WAYLAND_PROTOCOLDIR)/stable/presentation-time/presentation-time.x
 	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-shell/xdg-shell-unstable-v5.xml \
 	     $(WAYLAND_PROTOCOLDIR)/unstable/xdg-shell/xdg-shell-unstable-v6.xml \
 	     $(WAYLAND_PROTOCOLDIR)/unstable/xwayland-keyboard-grab/xwayland-keyboard-grab-unstable-v1.xml
+# Special case because of dependency on xdg-shell
 XDG_DECORATION_XML = $(WAYLAND_PROTOCOLDIR)/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml
 vpath %.xml $(dir $(PROTO_XMLS))
 

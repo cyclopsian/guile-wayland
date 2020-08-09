@@ -6,14 +6,11 @@
   #:use-module (epoxy egl)
   #:use-module (epoxy gles2)
   #:use-module (ice-9 match)
+  #:use-module (oop goops)
   #:use-module (wayland client)
+  #:use-module (wayland client xdg-shell)
   #:use-module (wayland egl)
-  #:use-module (wayland scanner)
-  #:duplicates (merge-generics))
-
-(eval-when (expand load eval)
-  (wl-scanner-load
-    (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml")))
+  #:duplicates (merge-generics replace))
 
 (epoxy-require-egl-extension "EGL_EXT_platform_wayland")
 

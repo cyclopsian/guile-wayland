@@ -8,12 +8,8 @@
   #:use-module (srfi srfi-1)
   #:use-module (wayland client)
   #:use-module (wayland client util)
-  #:use-module (wayland scanner)
+  #:use-module (wayland client xdg-shell)
   #:duplicates (merge-generics))
-
-(eval-when (expand load eval)
-  (wl-scanner-load
-    (string-append *wl-protocol-dir* "/stable/xdg-shell/xdg-shell.xml")))
 
 (define-class <client-state> ()
   (display #:accessor display)
@@ -26,15 +22,15 @@
   (set! (store state)
     (listen-interfaces
       (display state)
-      (list <wl-seat>
-            #:after  (λ (seat) (listen-seat state seat))
-            #:remove (λ (seat) (destroy-seat state seat)))
+      `(,<wl-seat>
+         #:after  ,(λ (seat) (listen-seat state seat))
+         #:remove ,(λ (seat) (destroy-seat state seat)))
       <wl-shm>
-      <wl-compositor>
-      (list <xdg-wm-base>
-            #:after (λ (wm)
-                      (add-listener
-                        wm #:ping (λ (serial) (pong wm serial))))))))
+      `(,<wl-compositor> #:version 4)
+      `(,<xdg-wm-base>
+         #:after ,(λ (wm)
+                    (add-listener
+                      wm #:ping (λ (serial) (pong wm serial))))))))
 
 (define-method (destroy (state <client-state>))
   (destroy (store state))
